@@ -64,8 +64,12 @@ def preprocess_tweets(db, pipeline):
     db.commit()
 
 
-def get_db_users(cursor):
-    return cursor.execute('SELECT DISTINCT id FROM users')
+def get_table_columns(cursor, table, columns):
+    return cursor.execute('SELECT DISTINCT {} FROM {}'.format(', '.join(columns), table))
+
+
+def get_user_tweets(cursor, user_id):
+    return cursor.execute('SELECT preprocessed_text FROM tweets WHERE user_id=?', (user_id,))
 
 
 def make_user_corpus(user_id, cursor):
@@ -88,14 +92,14 @@ def add_label_column(cursor, table):
         pass
 
 
-def update_user_label(word_set, user_corpus, cursor):
-    # if the user corpus contains words mentioned in the seed word set label the user with 1 else 0
-        if words_set.intersection(user_corpus):
-            words_used = words_set.intersection(user_corpus)
-            cursor.execute('UPDATE users SET label = ?, words_used = ? WHERE screen_name = ?',
+def update_table_label(word_set, words, cursor, table):
+    # if the tokens contains words mentioned in the seed word set label the data with 1 else 0
+        if words_set.intersection(words):
+            words_used = words_set.intersection(words)
+            cursor.execute('UPDATE {} SET label = ?, words_used = ? WHERE screen_name = ?'.format(table),
                               (1, ','.join(words_used), screen_name))
         else:
-            cursor.execute('UPDATE users SET label = ? WHERE screen_name = ?',
+            cursor.execute('UPDATE {} SET label = ? WHERE screen_name = ?'.format(table),
                               (0, screen_name))
 
 
@@ -114,11 +118,11 @@ def label_users(db, words_set):
     tweet_c = db.cursor()  # cursor for iterating over a user tweets in tweets table
     update_c = db.cursor()  # cursor for updating the tweets table with preprocessed text
 
-    add_label_column(update_c)
+    add_label_column(update_c, "users")
     
-    for user_id, in get_db_users:
+    for user_id, in get_table_columns(user_c, "users", ["id"]):
         user_corpus = make_user_corpus(user_id, tweet_c)
-        update_user_label(word_set, user_corpus, update_c)
+        update_table_label(word_set, user_corpus, update_c, "users")
                
     # inactivate cursors
     user_c.close()
@@ -142,26 +146,11 @@ def label_tweets(db, words_set):
     tweet_c = db.cursor()  # cursor for iterating over a user tweets in tweets table
     update_c = db.cursor()  # cursor for updating the tweets table with preprocessed text
     
-    # Make new label column if it doesn't exist
-    try: 
-        update_c.execute('ALTER TABLE tweets ADD label real')
-        update_c.execute('ALTER TABLE tweets ADD words_used text')
-
-    except:
-        pass
-    
+    add_label_column(update_c, "tweets")
 
     for text, tweet_id in tweet_c.execute('SELECT preprocessed_text, tweet_id FROM tweets'):
         tokens = text.split()
-
-        if words_set.intersection(tokens):
-            words_used = words_set.intersection(tokens)
-            update_c.execute('UPDATE tweets SET label = ?, words_used = ? WHERE tweet_id = ?',
-                              (1, ','.join(words_used), tweet_id))
-                            
-        else:
-            update_c.execute('UPDATE tweets SET label = ? WHERE tweet_id = ?',
-                              (0, tweet_id))
+        update_table_label(word_set, tokens, update_c, "tweets")
                               
     # inactivate cursors
     tweet_c.close()  
@@ -192,19 +181,17 @@ def tweets_counter(db):
 
     for label, in tweet_c.execute('SELECT label FROM tweets'):
         tweets_count += 1
-
         if label == 1:
             positive_tweets_count += 1
-
         else:
             negative_tweets_count += 1
 
     return tweets_count, positive_tweets_count, negative_tweets_count
 
 
-def make_n_grams(db):
+def get_n_grams(db):
     """
-    Makes n-grams for positive and negative users.
+    Returns n-grams for positive and negative users.
     
     Args:
     1. db (sqlite database): Sqlite database containing users and tweets table.
@@ -213,7 +200,6 @@ def make_n_grams(db):
     1. A set of positive users n-grams.
     2. A set of negative users n-grams.
     """
-
     user_c = db.cursor()  # cursor for iteration over users table
     tweet_c = db.cursor()  # cursor for iterating over a user tweets in tweets table
     update_c = db.cursor()  # cursor for updating the tweets table with preprocessed text
@@ -221,7 +207,7 @@ def make_n_grams(db):
     positive_n_grams = {}
     negative_n_grams = {}
     
-    for user_id, label in user_c.execute('SELECT DISTINCT id, label FROM users'):
+    for user_id, label in get_table_columns(user_c, "users", ["id", "label"]):
         for text, in tweet_c.execute('SELECT preprocessed_text FROM tweets WHERE user_id=?', 
                                            (user_id,)):
             text_n_grams = [item for n in range(1, 3) for item in nltk.ngrams(text.split(), n)]
@@ -241,7 +227,7 @@ def make_n_grams(db):
     
     db.commit()
     
-    return obscene_n_grams, non_obscene_n_grams
+    return positive_n_grams, negative_n_grams
 
 
 def calculate_LOR(positive_n_grams, negative_n_grams, positive_count, negative_count):
