@@ -12,7 +12,6 @@ import twitter
 
 def oauth_login():
     """Returns a twitter api object using OAuth login."""
-
     CONSUMER_KEY = ''
     CONSUMER_SECRET = ''
     OAUTH_TOKEN = ''
@@ -20,7 +19,6 @@ def oauth_login():
 
     auth = twitter.oauth.OAuth(OAUTH_TOKEN, OAUTH_TOKEN_SECRET,
                                CONSUMER_KEY, CONSUMER_SECRET)
-
     twitter_api = twitter.Twitter(auth=auth)
     return twitter_api
 
@@ -29,14 +27,12 @@ def make_twitter_request(twitter_api_func, max_errors=10, *args, **kw):
     """ 
     A nested helper function that handles common HTTPErrors. 
 
-
     Returns:
     1. an updated value for wait_period if the problem is a 500 level error. 
     2. Block until the rate limit is reset if it's a rate limiting issue (429 error). 
     3. None for 401 and 404 errors, which requires special handling by the caller.
 
     """
-
     def handle_twitter_http_error(e, wait_period=2, sleep_when_rate_limited=True):
 
         if wait_period > 3600:  # Seconds
@@ -117,7 +113,6 @@ def stream_from_users(twitter_api, user, tweets_per_user, friends_per_user, db, 
     """ 
     Stores user's tweets then recurses over their friends.    
 
-
     Args:
     1. twitter_api (object): OAuth login object for twitter api.
     2. user (object): User object to collect tweets from.
@@ -126,7 +121,6 @@ def stream_from_users(twitter_api, user, tweets_per_user, friends_per_user, db, 
     5. tweets_left (int): The total number of tweets to be collected from this user and recursive calls over
                         friends.
     6. db_cursor (file): cursor of database to store the tweets and users collected.
-
 
     Returns:
     The function doesn't return any value.
@@ -163,13 +157,11 @@ def stream_from_users(twitter_api, user, tweets_per_user, friends_per_user, db, 
 
 def collect_tweets(twitter_api, user, tweets_per_user):
     """Returns a number of tweet objects from a user."""
-
     robust_collect_tweets = partial(
         make_twitter_request, twitter_api.statuses.user_timeline)
 
     tweets = robust_collect_tweets(
         user_id=user['id'], tweet_mode='extended', count=tweets_per_user)
-
     if tweets:
         return tweets
     else:
@@ -178,39 +170,31 @@ def collect_tweets(twitter_api, user, tweets_per_user):
 
 def collect_friends(twitter_api, user, friends_per_user):
     """Return a list of user's friends."""
-
     robust_collect_friends = partial(
         make_twitter_request, twitter_api.friends.list)
 
     friends = []
     cursor = -1
-
     while cursor != 0:
         response = robust_collect_friends(user_id=user['id'])
-
         if response is not None:
             friends += response['users']
             cursor = response['next_cursor']
 
         if len(friends) >= friends_per_user or response is None:
             break
-
     return friends[:friends_per_user]
 
 
 def collect_user(twitter_api, screen_name):
     """Returns a user object."""
-
     robust_collect_user = partial(make_twitter_request, twitter_api.users.show)
-
     return robust_collect_user(screen_name=screen_name)
 
 
 def store_tweets(twitter_api, tweets, user, db, db_cursor):
     """Stores tweets into a sql database."""
-
     for tweet in tweets:
-
         if 'retweeted_status' in tweet.keys():  # check if the tweet was retweeted
             tweet_text = tweet['retweeted_status']['full_text']
             tweet_user = tweet['retweeted_status']['user']['screen_name']
@@ -218,25 +202,20 @@ def store_tweets(twitter_api, tweets, user, db, db_cursor):
             # collect and store the original author of the tweet
             original_user = collect_user(twitter_api, tweet_user)
             _ = store_user(original_user, db, db_cursor)
-
         else:
             tweet_text = tweet['full_text']
             tweet_user = tweet['user']['screen_name']
-
         db_cursor.execute("INSERT INTO tweets VALUES(?, ?, ?)",
                           (tweet_text, tweet['id'], tweet_user))
-
         db.commit()
 
 
 def store_user(user, db, db_cursor):
     """Stores user into a sql database."""
-
     db_cursor.execute("INSERT INTO users VALUES(?, ?, ?, ?, ?, ?, ?, ?)",
                       (user['screen_name'], user['name'], user['id'], user['description'],
                           user['followers_count'], user['friends_count'], user['statuses_count'],
                           user['created_at']))
-
     db.commit()
 
 
