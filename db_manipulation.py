@@ -27,6 +27,10 @@ def create_db(db_name):
     return conn, c
 
 
+def inactivate_cursors(cursors):
+    for cursor in cursors:
+        cursor.close()
+
 
 def preprocess_tweets(db, pipeline):
     """
@@ -40,48 +44,44 @@ def preprocess_tweets(db, pipeline):
     """
     user_c = db.cursor()  # cursor for iteration over users table
     tweet_c = db.cursor()  # cursor for iterating over a user tweets in tweets table
-    update_c = db.cursor()  # cursor for updating the tweets table with preprocessed text
+    update_c = db.cursor()  # cursor for updating the tweets table with processed text
     
-    # Make new preprocessed_text column if it doesn't exist
-    try: 
-        update_c.execute('ALTER TABLE tweets ADD preprocessed_text text')
-
-    except:
-        pass
+    add_new_column(update_c, "tweets", "processed_text", "text")
     
     for user_id, in get_distinct_table_columns(user_c, "users", ["id"]):
-        for text, tweet_id in get_user_tweets(tweet_c, user_id, preprocessed=False):                                                     (user_id)):
-            preprocessed_tweet = pipeline(text)
-            data = (preprocessed_tweet, tweet_id)
-            update_c.execute('UPDATE tweets set preprocessed_text = ? where tweet_id = ?', data)
+        for text, tweet_id in get_user_tweets(tweet_c, user_id, processed=False):                                                     (user_id)):
+            processed_tweet = pipeline(text)
+            data = (processed_tweet, tweet_id)
+            update_tweet_processed_text(update_c, data)
             
-    # inactivate cursors
-    user_c.close()
-    tweet_c.close()  
-    update_c.close()
-
+    inactivate_cursors([users_c, tweet_c, update_c])
     db.commit()
 
 
+def update_tweet_processed_tweet(cursor, data):
+    cursor.execute('UPDATE tweets set processed_text = ? where tweet_id = ?', data)
+
+
+
 def get_distinct_table_columns(cursor, table, columns):
-    return cursor.execute('SELECT DISTINCT {} FROM {}'.format(', '.join(columns), table))
+    cursor.execute('SELECT DISTINCT {} FROM {}'.format(', '.join(columns), table))
 
 
 def get_table_columns(cursor, table, columns):
-    return cursor.execute('SELECT {} FROM {}'.format(', '.join(columns), table))
+    cursor.execute('SELECT {} FROM {}'.format(', '.join(columns), table))
 
 
-def get_user_tweets(cursor, user_id, preprocessd=True):
-    if preprocessed:
-        columns = ["preprocessed_text"]
+def get_user_tweets(cursor, user_id, processed=True):
+    if processed:
+        columns = ["processed_text"]
     else:
         columns = ["text", "tweet_id"]
-    return cursor.execute('SELECT {} FROM tweets WHERE user_id=?'.format(', '.join(columns)), (user_id,))
+    cursor.execute('SELECT {} FROM tweets WHERE user_id=?'.format(', '.join(columns)), (user_id,))
 
 
 def make_user_corpus(user_id, cursor):
     user_corpus = {}
-    for text, in cursor.execute('SELECT preprocessed_text FROM tweets WHERE user_id=?', (user_id,)):
+    for text, in cursor.execute('SELECT processed_text FROM tweets WHERE user_id=?', (user_id,)):
         tokens = text.split()
         for token in tokens:
             if token in user_corpus.keys():
@@ -91,9 +91,9 @@ def make_user_corpus(user_id, cursor):
     return user_corpus
 
 
-def add_new_column(cursor, table, column):
+def add_new_column(cursor, table, column, type):
     try: 
-        cursor.execute('ALTER TABLE {} ADD {} real'.format(table, column))
+        cursor.execute('ALTER TABLE {0} ADD {1} {2}}'.format(table, column, type))
     except:
         pass
 
@@ -122,20 +122,16 @@ def label_users(db, words_set):
 
     user_c = db.cursor()  # cursor for iteration over users table
     tweet_c = db.cursor()  # cursor for iterating over a user tweets in tweets table
-    update_c = db.cursor()  # cursor for updating the tweets table with preprocessed text
+    update_c = db.cursor()  # cursor for updating the tweets table with processed text
 
-    add_new_column(update_c, "users", "label")
-    add_new_column(update_c, "users", "words_used")
+    add_new_column(update_c, "users", "label", "real")
+    add_new_column(update_c, "users", "words_used", "text")
     
     for user_id, in get_distinct_table_columns(user_c, "users", ["id"]):
         user_corpus = make_user_corpus(user_id, tweet_c)
         update_table_label(word_set, user_corpus, update_c, "users")
                
-    # inactivate cursors
-    user_c.close()
-    tweet_c.close()  
-    update_c.close()
-    
+    inactivate_cursors([users_c, tweet_c, update_c])
     db.commit()
 
 
@@ -151,19 +147,16 @@ def label_tweets(db, words_set):
     Return: None
     """
     tweet_c = db.cursor()  # cursor for iterating over a user tweets in tweets table
-    update_c = db.cursor()  # cursor for updating the tweets table with preprocessed text
+    update_c = db.cursor()  # cursor for updating the tweets table with processed text
     
-    add_new_column(update_c, "tweets", "label")
-    add_new_column(update_c, "tweets", "words_used")
+    add_new_column(update_c, "tweets", "label", "real")
+    add_new_column(update_c, "tweets", "words_used", "text")
 
-    for text, tweet_id in get_table_columns(tweet_c, "tweets", ["preprocessed_text", "tweet_id"]):
+    for text, tweet_id in get_table_columns(tweet_c, "tweets", ["processed_text", "tweet_id"]):
         tokens = text.split()
         update_table_label(word_set, tokens, update_c, "tweets")
                               
-    # inactivate cursors
-    tweet_c.close()  
-    update_c.close()
-    
+    inactivate_cursors([tweet_c, update_c])
     db.commit()
     
 
@@ -218,7 +211,7 @@ def get_n_grams(db):
     """
     user_c = db.cursor()  # cursor for iteration over users table
     tweet_c = db.cursor()  # cursor for iterating over a user tweets in tweets table
-    update_c = db.cursor()  # cursor for updating the tweets table with preprocessed text
+    update_c = db.cursor()  # cursor for updating the tweets table with processed text
     
     positive_n_grams = {}
     negative_n_grams = {}
@@ -232,17 +225,23 @@ def get_n_grams(db):
                 else:
                     negative_n_grams[n_gram] = negative_n_grams.get(n_gram, 0) + 1
                 
-    # inactivate cursors
-    user_c.close()
-    tweet_c.close()  
-    update_c.close()
-    
+    inactivate_cursors([users_c, tweet_c, update_c])
     db.commit()
     
     return positive_n_grams, negative_n_grams
 
 
-def calculate_LOR(positive_n_grams, negative_n_grams, positive_count, negative_count):
+def calculate_n_gram_LOR(n_gram, positive_n_grams, negative_ngrams, positive_count, negative_count):
+    numerator = positive_n_grams.get(n_gram, 0) * (negative_count - positive_n_grams.get(n_gram, 0))
+    denominator = negative_n_grams.get(n_gram, 0) * (positive_count - negative_n_grams.get(n_gram, 0)) + 0.01
+    return np.log(numerator/denominator)
+
+
+def filter_n_grams_dict(n_grams_dict, limit):
+    return {n_gram: count for n_gram, count in n_gram_dict.items() if count >= limit}
+
+
+def get_n_grams_LOR(positive_n_grams, negative_n_grams, positive_count, negative_count):
     """
     Calculate log odds ratio for a n-grams provided in two dictionaires.
     
@@ -255,18 +254,14 @@ def calculate_LOR(positive_n_grams, negative_n_grams, positive_count, negative_c
     Returns:
         1. A dictionary containing log odds ratio of all n_grams
     """
-    
     all_n_grams = set(positive_n_grams.keys()).union(negative_n_grams.keys())
     
-    positive_n_grams = {n_gram: count for n_gram, count in neg_n_grams.items() if count >= 10}
-    negative_n_grams = {n_gram: count for n_gram, count in pos_n_grams.items() if count >= 10}
+    positive_n_grams = filter_n_gram_dict(positive_n_grams, 10)
+    negative_n_grams = filter_n_gram_dict(negative_n_grams, 10)
 
-    n_gram_LOR = {}
-    
+    n_gram_LOR = {} 
     for n_gram in all_n_grams:
-        numerator = positive_n_grams.get(n_gram, 0) * (negative_count - positive_n_grams.get(n_gram, 0))
-        denominator = negative_n_grams.get(n_gram, 0) * (positive_count - negative_n_grams.get(n_gram, 0)) + 0.01
-        n_gram_LOR[n_gram] = np.log(numerator/denominator)
+        n_gram_LOR[n_gram] = calculate_n_gram_LOR(n_gram, positive_n_grams, negative_n_grams, positive_count, negative_count)
         
     return n_gram_LOR        
     
