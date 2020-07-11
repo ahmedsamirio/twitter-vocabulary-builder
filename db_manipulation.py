@@ -14,9 +14,8 @@ def create_db(db_name):
     1. Sqlite connect object
     """
     if db_name not in os.listdir():
-        # Create SQL database then create tweets and users tables
-        conn = sqlite3.connect(db_name)
-        c = conn.cursor()
+        conn = sqlite3.connect(db_name)  # Create SQL database
+        c = conn.cursor()  # Create a database cursor
         c.execute('''CREATE TABLE tweets (text text, id real, user_id text)''')  # Create tweets table
         c.execute('''CREATE TABLE users (screen_name text, name text, id real,  description text, followers_count real,\
                     friends_count real, statuses count real, created_at text)''')  # Create users table
@@ -100,13 +99,13 @@ def add_new_column(cursor, table, column, type):
 
 def update_table_label(word_set, words, cursor, table):
     # if the tokens contains words mentioned in the seed word set label the data with 1 else 0
-        if words_set.intersection(words):
-            words_used = words_set.intersection(words)
-            cursor.execute('UPDATE {} SET label = ?, words_used = ? WHERE screen_name = ?'.format(table),
-                              (1, ','.join(words_used), screen_name))
-        else:
-            cursor.execute('UPDATE {} SET label = ? WHERE screen_name = ?'.format(table),
-                              (0, screen_name))
+    if words_set.intersection(words):
+        words_used = words_set.intersection(words)
+        cursor.execute('UPDATE {} SET label = ?, words_used = ? WHERE screen_name = ?'.format(table),
+                          (1, ','.join(words_used), screen_name))
+    else:
+        cursor.execute('UPDATE {} SET label = ? WHERE screen_name = ?'.format(table),
+                          (0, screen_name))
 
 
 def label_users(db, words_set):
