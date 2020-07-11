@@ -3,6 +3,7 @@ from http.client import BadStatusLine
 from urllib.error import URLError
 
 from db_manipulation import *
+from config import *
 
 import sys
 import time
@@ -12,10 +13,10 @@ import twitter
 def oauth_login():
     """Returns a twitter api object using OAuth login."""
 
-    CONSUMER_KEY = 'wdelgJ06JYSpkZck8KrXwBMiC'
-    CONSUMER_SECRET = 'xDUVnIQTHApQCWEGLYgsH8g9Lp4Mn8gka9neVWU0rbAaPxomn9'
-    OAUTH_TOKEN = '1248519309887930372-5eyeqaJOxj1fFGxxzeSJ9em16cufDH'
-    OAUTH_TOKEN_SECRET = 'M9PvTbdt5QQkBNMEKns2K7GGCwHjo518XBlyfusUS84TW'
+    CONSUMER_KEY = 'yza2aSVDaK9KwljSa2fSktTw7'
+    CONSUMER_SECRET = 'lPlfiVfs6d9a7NTMXf7vGWQY1N1gH3t7LXkviiyIiT6Sjy8cUr'
+    OAUTH_TOKEN = '1248519309887930372-cGsivuKpsselJIptMpTTkWngKIbnAA'
+    OAUTH_TOKEN_SECRET = 'xHieutZx7OQBHmHfZjs86ozjkadDHrKeqCCVrheGtA1jL'
 
     auth = twitter.oauth.OAuth(OAUTH_TOKEN, OAUTH_TOKEN_SECRET,
                                CONSUMER_KEY, CONSUMER_SECRET)
@@ -133,17 +134,14 @@ def stream_from_users(twitter_api, user, tweets_per_user, friends_per_user, db, 
     """
 
     # avoid duplicates by storing collected users in a global list
-    # global collected_users_list
-    # global tweets_count  # global variable to increment count of tweets collected
-    # global limit_depth  # global variable to limit the recursion
-    # global start_time  # global variable to calculate the duration
-
-    print(collected_users_list, tweets_count)
+    global collected_users_list
+    global tweets_count  # global variable to increment count of tweets collected
+    global limit_depth  # global variable to limit the recursion
+    global start_time  # global variable to calculate the duration
 
     tweets = collect_tweets(twitter_api, user, tweets_per_user)
-
     if tweets:
-        _ = store_tweets(tweets, user, db, db_cursor)
+        _ = store_tweets(twitter_api, tweets, user, db, db_cursor)
         _ = store_user(user, db, db_cursor)
 
     tweets_count += len(tweets)
@@ -216,9 +214,9 @@ def store_tweets(twitter_api, tweets, user, db, db_cursor):
         if 'retweeted_status' in tweet.keys():  # check if the tweet was retweeted
             tweet_text = tweet['retweeted_status']['full_text']
             tweet_user = tweet['retweeted_status']['user']['screen_name']
-            # collect the original author of the tweet
+
+            # collect and store the original author of the tweet
             original_user = collect_user(twitter_api, tweet_user)
-            # store the original author of the tweet
             _ = store_user(original_user, db, db_cursor)
 
         else:
@@ -259,9 +257,9 @@ class TwitterStreamer:
         self.limit_depth = limit_depth  # The depth of the tree of users to collect tweets from
         self.db = db
         self.db_cursor = db_cursor
-        self.stream_from_user_helper(seed_user, 0)
+        self._stream_from_user_helper(seed_user, 0)
 
-    def stream_from_user_helper(self, user, depth):
+    def _stream_from_user_helper(self, user, depth):
         tweets = collect_tweets(self.twitter_api, user, self.tweets_per_user)
 
         if tweets:
