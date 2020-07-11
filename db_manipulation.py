@@ -13,13 +13,10 @@ def create_db(db_name):
     Return:
     1. Sqlite connect object
     """
-
     if db_name not in os.listdir():
-    
         # Create SQL database then create tweets and users tables
         conn = sqlite3.connect(db_name)
         c = conn.cursor()
-
         c.execute('''CREATE TABLE tweets (text text, id real, user_id text)''')  # Create tweets table
         c.execute('''CREATE TABLE users (screen_name text, name text, id real,  description text, followers_count real,\
                     friends_count real, statuses count real, created_at text)''')  # Create users table
@@ -27,7 +24,6 @@ def create_db(db_name):
     else:
         conn = sqlite3.connect(db_name)  # Open SQL database
         c = conn.cursor()
-
     return conn, c
 
 
@@ -42,7 +38,6 @@ def preprocess_tweets(db, pipeline):
     
     Return: None
     """
-    
     user_c = db.cursor()  # cursor for iteration over users table
     tweet_c = db.cursor()  # cursor for iterating over a user tweets in tweets table
     update_c = db.cursor()  # cursor for updating the tweets table with preprocessed text
@@ -69,6 +64,40 @@ def preprocess_tweets(db, pipeline):
     db.commit()
 
 
+def get_db_users(cursor):
+    return cursor.execute('SELECT DISTINCT id FROM users')
+
+
+def make_user_corpus(user_id, cursor):
+    user_corpus = {}
+    for text, in cursor.execute('SELECT preprocessed_text FROM tweets WHERE user_id=?', (user_id,)):
+        tokens = text.split()
+        for token in tokens:
+            if token in user_corpus.keys():
+                user_corpus[token] += 1
+            else:
+                user_corpus[token] = 1
+    return user_corpus
+
+
+def add_label_column(cursor, table):
+    try: 
+        cursor.execute('ALTER TABLE {} ADD label real'.format(table))
+        cursor.execute('ALTER TABLE {} ADD words_used text'.format(table))
+    except:
+        pass
+
+
+def update_user_label(word_set, user_corpus, cursor):
+    # if the user corpus contains words mentioned in the seed word set label the user with 1 else 0
+        if words_set.intersection(user_corpus):
+            words_used = words_set.intersection(user_corpus)
+            cursor.execute('UPDATE users SET label = ?, words_used = ? WHERE screen_name = ?',
+                              (1, ','.join(words_used), screen_name))
+        else:
+            cursor.execute('UPDATE users SET label = ? WHERE screen_name = ?',
+                              (0, screen_name))
+
 
 def label_users(db, words_set):
     """
@@ -85,38 +114,12 @@ def label_users(db, words_set):
     tweet_c = db.cursor()  # cursor for iterating over a user tweets in tweets table
     update_c = db.cursor()  # cursor for updating the tweets table with preprocessed text
 
-    # Make new label column if it doesn't exist
-    try: 
-        update_c.execute('ALTER TABLE users ADD label real')
-        update_c.execute('ALTER TABLE users ADD words_used text')
-
-    except:
-        pass
+    add_label_column(update_c)
     
-    for user_id, in user_c.execute('SELECT DISTINCT id FROM users'):
-        user_corpus = {}
-
-        for text, in tweet_c.execute('SELECT preprocessed_text FROM tweets WHERE user_id=?', 
-                                           (user_id,)):
-            tokens = text.split()
-            for token in tokens:
-
-                if token in user_corpus.keys():
-                    user_corpus[token] += 1
-
-                else:
-                    user_corpus[token] = 1
-
-        
-        if words_set.intersection(user_corpus):
-            words_used = words_set.intersection(user_corpus)
-            update_c.execute('UPDATE users SET label = ?, words_used = ? WHERE screen_name = ?',
-                              (1, ','.join(words_used), screen_name))
-
-        else:
-            update_c.execute('UPDATE users SET label = ? WHERE screen_name = ?',
-                              (0, screen_name))
-              
+    for user_id, in get_db_users:
+        user_corpus = make_user_corpus(user_id, tweet_c)
+        update_user_label(word_set, user_corpus, update_c)
+               
     # inactivate cursors
     user_c.close()
     tweet_c.close()  
