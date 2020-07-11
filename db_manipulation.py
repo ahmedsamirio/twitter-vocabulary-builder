@@ -49,9 +49,8 @@ def preprocess_tweets(db, pipeline):
     except:
         pass
     
-    for user_id, in user_c.execute('SELECT DISTINCT id FROM users'):
-        for text, tweet_id in tweet_c.execute('SELECT text, tweet_id FROM tweets WHERE user_id=?',
-                                                     (user_id)):
+    for user_id, in get_distinct_table_columns(user_c, "users", ["id"]):
+        for text, tweet_id in get_user_tweets(tweet_c, user_id, preprocessed=False):                                                     (user_id)):
             preprocessed_tweet = pipeline(text)
             data = (preprocessed_tweet, tweet_id)
             update_c.execute('UPDATE tweets set preprocessed_text = ? where tweet_id = ?', data)
@@ -64,12 +63,20 @@ def preprocess_tweets(db, pipeline):
     db.commit()
 
 
-def get_table_columns(cursor, table, columns):
+def get_distinct_table_columns(cursor, table, columns):
     return cursor.execute('SELECT DISTINCT {} FROM {}'.format(', '.join(columns), table))
 
 
-def get_user_tweets(cursor, user_id):
-    return cursor.execute('SELECT preprocessed_text FROM tweets WHERE user_id=?', (user_id,))
+def get_table_columns(cursor, table, columns):
+    return cursor.execute('SELECT {} FROM {}'.format(', '.join(columns), table))
+
+
+def get_user_tweets(cursor, user_id, preprocessd=True):
+    if preprocessed:
+        columns = ["preprocessed_text"]
+    else:
+        columns = ["text", "tweet_id"]
+    return cursor.execute('SELECT {} FROM tweets WHERE user_id=?'.format(', '.join(columns)), (user_id,))
 
 
 def make_user_corpus(user_id, cursor):
@@ -84,10 +91,9 @@ def make_user_corpus(user_id, cursor):
     return user_corpus
 
 
-def add_label_column(cursor, table):
+def add_new_column(cursor, table, column):
     try: 
-        cursor.execute('ALTER TABLE {} ADD label real'.format(table))
-        cursor.execute('ALTER TABLE {} ADD words_used text'.format(table))
+        cursor.execute('ALTER TABLE {} ADD {} real'.format(table, column))
     except:
         pass
 
@@ -118,9 +124,10 @@ def label_users(db, words_set):
     tweet_c = db.cursor()  # cursor for iterating over a user tweets in tweets table
     update_c = db.cursor()  # cursor for updating the tweets table with preprocessed text
 
-    add_label_column(update_c, "users")
+    add_new_column(update_c, "users", "label")
+    add_new_column(update_c, "users", "words_used")
     
-    for user_id, in get_table_columns(user_c, "users", ["id"]):
+    for user_id, in get_distinct_table_columns(user_c, "users", ["id"]):
         user_corpus = make_user_corpus(user_id, tweet_c)
         update_table_label(word_set, user_corpus, update_c, "users")
                
@@ -146,9 +153,10 @@ def label_tweets(db, words_set):
     tweet_c = db.cursor()  # cursor for iterating over a user tweets in tweets table
     update_c = db.cursor()  # cursor for updating the tweets table with preprocessed text
     
-    add_label_column(update_c, "tweets")
+    add_new_column(update_c, "tweets", "label")
+    add_new_column(update_c, "tweets", "words_used")
 
-    for text, tweet_id in tweet_c.execute('SELECT preprocessed_text, tweet_id FROM tweets'):
+    for text, tweet_id in get_table_columns(tweet_c, "tweets", ["preprocessed_text", "tweet_id"]):
         tokens = text.split()
         update_table_label(word_set, tokens, update_c, "tweets")
                               
@@ -179,14 +187,22 @@ def tweets_counter(db):
     postitive_tweets_count = 0
     negative_tweets_count = 0
 
-    for label, in tweet_c.execute('SELECT label FROM tweets'):
-        tweets_count += 1
+    for label, in get_table_columns(tweet_c, "tweets", ["label"]):
+            tweets_count += 1
         if label == 1:
             positive_tweets_count += 1
         else:
             negative_tweets_count += 1
 
     return tweets_count, positive_tweets_count, negative_tweets_count
+
+
+def make_n_grams(text):
+    n_grams = []
+    for n in range(1, 3):
+        for item in nltk.ngrams(text.split(), n):
+            n_grams.append(item)
+    return n_grams
 
 
 def get_n_grams(db):
@@ -207,16 +223,12 @@ def get_n_grams(db):
     positive_n_grams = {}
     negative_n_grams = {}
     
-    for user_id, label in get_table_columns(user_c, "users", ["id", "label"]):
-        for text, in tweet_c.execute('SELECT preprocessed_text FROM tweets WHERE user_id=?', 
-                                           (user_id,)):
-            text_n_grams = [item for n in range(1, 3) for item in nltk.ngrams(text.split(), n)]
-
+    for user_id, label in get_distinct_table_columns(user_c, "users", ["id", "label"]):
+        for text, in get_user_tweets(tweet_c, user_id):
+            text_n_grams = make_n_grams(text)
             for n_gram in text_n_grams:
-
                 if label == 1:
                     positive_n_grams[n_gram] = positive_n_grams.get(n_gram, 0) + 1
-
                 else:
                     negative_n_grams[n_gram] = negative_n_grams.get(n_gram, 0) + 1
                 

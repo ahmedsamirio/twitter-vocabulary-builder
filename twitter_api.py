@@ -13,10 +13,10 @@ import twitter
 def oauth_login():
     """Returns a twitter api object using OAuth login."""
 
-    CONSUMER_KEY = 'yza2aSVDaK9KwljSa2fSktTw7'
-    CONSUMER_SECRET = 'lPlfiVfs6d9a7NTMXf7vGWQY1N1gH3t7LXkviiyIiT6Sjy8cUr'
-    OAUTH_TOKEN = '1248519309887930372-cGsivuKpsselJIptMpTTkWngKIbnAA'
-    OAUTH_TOKEN_SECRET = 'xHieutZx7OQBHmHfZjs86ozjkadDHrKeqCCVrheGtA1jL'
+    CONSUMER_KEY = ''
+    CONSUMER_SECRET = ''
+    OAUTH_TOKEN = ''
+    OAUTH_TOKEN_SECRET = ''
 
     auth = twitter.oauth.OAuth(OAUTH_TOKEN, OAUTH_TOKEN_SECRET,
                                CONSUMER_KEY, CONSUMER_SECRET)
