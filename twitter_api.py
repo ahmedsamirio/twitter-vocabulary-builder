@@ -3,11 +3,13 @@ from http.client import BadStatusLine
 from urllib.error import URLError
 
 from db_manipulation import *
-from config import *
+from config import collected_users_list, tweets_count, start_time, limit_depth
 
 import sys
 import time
 import twitter
+
+import numpy as np
 
 
 def oauth_login():
@@ -108,7 +110,7 @@ def make_twitter_request(twitter_api_func, max_errors=10, *args, **kw):
                 print("Too many consecutive errors...bailing out.", file=sys.stderr)
 
 
-def stream_from_users(twitter_api, user, tweets_per_user, friends_per_user, db, db_cursor, depth):
+def stream_from_users(twitter_api, user, tweets_per_user, friends_per_user, mongo_db, depth):
     """ 
     Stores user's tweets then recurses over their friends.    
 
@@ -134,24 +136,31 @@ def stream_from_users(twitter_api, user, tweets_per_user, friends_per_user, db, 
 
     tweets = collect_tweets(twitter_api, user, tweets_per_user)
     if tweets:
-        _ = store_tweets(twitter_api, tweets, user, db, db_cursor)
-        _ = store_user(user, db, db_cursor)
+        _ = save_to_mongo(tweets, mongo_db, "tweets")
+        _ = save_to_mongo(user, mongo_db, "users")
 
     tweets_count += len(tweets)
     collected_users_list.append(user['id'])
 
-    if len(collected_users_list) % 100 == 0:
+    if len(collected_users_list) % 10 == 0:
         print("Collected tweets: %d tweet\nDuration: %d seconds" %
               (tweets_count, time.time() - start_time), "\n")
 
     if depth < limit_depth:
         friends = collect_friends(twitter_api, user, friends_per_user)
+        followers = collect_followers(twitter_api, user, friends_per_user)
+
+        # randomly select n friends and followers from the merged lists
+        friends = np.random.choice(friends+followers, friends_per_user)
 
         for friend in friends:
 
             if friend['id'] not in collected_users_list:
                 _ = stream_from_users(twitter_api, friend, tweets_per_user, friends_per_user,
-                                      db, db_cursor, depth+1)
+                                      mongo_db, depth+1)
+    else:
+        print("Collected tweets: %d tweet\nDuration: %d seconds" %
+              (tweets_count, time.time() - start_time), "\n")
 
 
 def collect_tweets(twitter_api, user, tweets_per_user):
@@ -176,20 +185,45 @@ def collect_friends(twitter_api, user, friends_per_user):
     friends = []
     cursor = -1
     while cursor != 0:
-        response = robust_collect_friends(user_id=user['id'])
+        response = robust_collect_friends(user_id=user['id'], count=200)
         if response is not None:
             friends += response['users']
             cursor = response['next_cursor']
 
         if len(friends) >= friends_per_user or response is None:
             break
-    return friends[:friends_per_user]
+
+    # print('{} friends: {}'.format(user['screen_name'], ', '.join(friends[:friends_per_user])))
+    return friends
+
+def collect_followers(twitter_api, user, friends_per_user):
+    """Return a list of user's follwoers."""
+    robust_collect_followers = partial(
+        make_twitter_request, twitter_api.followers.list)
+
+    followers = []
+    cursor = -1
+    while cursor != 0:
+        response = robust_collect_followers(user_id=user['id'], count=200)
+        if response is not None:
+            followers += response['users']
+            cursor = response['next_cursor']
+
+        if len(followers) >= friends_per_user or response is None:
+            break
+
+    # print('{} followers: {}'.format(user['screen_name'], ', '.join(followers[:friends_per_user])))
+    return followers
 
 
 def collect_user(twitter_api, screen_name):
     """Returns a user object."""
     robust_collect_user = partial(make_twitter_request, twitter_api.users.show)
     return robust_collect_user(screen_name=screen_name)
+
+def collect_users(twitter_api, screen_names):
+    robust_collect_users = partial(make_twitter_request, twitter_api.users.lookup)
+    return robust_collect_users(screen_name=screen_names)
 
 
 def store_tweets(twitter_api, tweets, user, db, db_cursor):
@@ -208,6 +242,18 @@ def store_tweets(twitter_api, tweets, user, db, db_cursor):
         db_cursor.execute("INSERT INTO tweets VALUES(?, ?, ?)",
                           (tweet_text, tweet['id'], tweet_user))
         db.commit()
+
+def save_to_mongo(data, mongo_db, mongo_db_coll):
+    coll = mongo_db[mongo_db_coll]
+
+    return coll.insert(data)   
+
+
+def store_tweets_json(tweets, user):
+    print(user['id'])
+    filename = 'user_tweets/{}.json'.format(user['id'])
+    with open(filename, 'w') as f:
+        json.dumps(tweets, f, ensure_ascii=False)
 
 
 def store_user(user, db, db_cursor):

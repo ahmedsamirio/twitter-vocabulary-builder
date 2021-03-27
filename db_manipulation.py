@@ -1,6 +1,6 @@
 from preprocessing import *
 
-import os, sqlite3
+import os, sqlite3, pymongo
 
 
 def create_db(db_name):
@@ -24,6 +24,14 @@ def create_db(db_name):
         conn = sqlite3.connect(db_name)  # Open SQL database
         c = conn.cursor()
     return conn, c
+
+
+
+def create_mongo_db():
+    myclient = pymongo.MongoClient("mongodb://localhost:27017/")
+    db = myclient["twitter_stream"]
+
+    return db
 
 
 def inactivate_cursors(cursors):

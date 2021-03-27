@@ -1,21 +1,19 @@
-import os
-import sqlite3
+import time
 from twitter_api import *
-
+from config import *
 
 if __name__ == "__main__":
 
     twitter_api = oauth_login()
 
-    conn, c = create_db(db_name)
+    mongo_db = create_mongo_db()
 
     # Collects the user object of the seed screen_name
-    seed_user = collect_user(twitter_api, seed_name)
+    seed_users = collect_users(twitter_api, seed_names)
 
-    # streamer = TwitterStreamer(twitter_api)
-    # _ = streamer.stream_from_users(seed_user
-    #                       tweets_per_user, friends_per_user, limit_depth, conn, c)
+    for user in seed_users:
 
-    stream_from_users(twitter_api, seed_user, tweets_per_user, friends_per_user, conn, c, 0)
+        stream_from_users(twitter_api, user, tweets_per_user, friends_per_user, mongo_db, 0)
 
-    conn.close()
+    print("Collected tweets: %d tweet\nDuration: %d seconds" %
+              (tweets_count, time.time() - start_time), "\n")
