@@ -19,5 +19,3 @@ if __name__ == "__main__":
     stream_from_users(twitter_api, seed_user, tweets_per_user, friends_per_user, conn, c, 0)
 
     conn.close()
-
-    print('Collected tweets: %d' % tweets_count)

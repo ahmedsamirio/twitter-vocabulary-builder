@@ -12,10 +12,10 @@ import twitter
 
 def oauth_login():
     """Returns a twitter api object using OAuth login."""
-    CONSUMER_KEY = ''
-    CONSUMER_SECRET = ''
-    OAUTH_TOKEN = ''
-    OAUTH_TOKEN_SECRET = ''
+    CONSUMER_KEY = 'agaAIqBTfKThsSHYArhX8Rc42'
+    CONSUMER_SECRET = 'vZMmSIWaXhuGZFRbLHg6vb3Gm91SIAQduOwLZudbDaD2Y6rhLB'
+    OAUTH_TOKEN = '1248519309887930372-9zztBJDAfiDLjXOXgpaELnDly0Gbkz'
+    OAUTH_TOKEN_SECRET = 'Qu35S7qaHLvHgE0EQbxe6RTykcGCm8xj7t4WRvVqIGzwF'
 
     auth = twitter.oauth.OAuth(OAUTH_TOKEN, OAUTH_TOKEN_SECRET,
                                CONSUMER_KEY, CONSUMER_SECRET)
@@ -31,7 +31,6 @@ def make_twitter_request(twitter_api_func, max_errors=10, *args, **kw):
     1. an updated value for wait_period if the problem is a 500 level error. 
     2. Block until the rate limit is reset if it's a rate limiting issue (429 error). 
     3. None for 401 and 404 errors, which requires special handling by the caller.
-
     """
     def handle_twitter_http_error(e, wait_period=2, sleep_when_rate_limited=True):
 
@@ -163,6 +162,7 @@ def collect_tweets(twitter_api, user, tweets_per_user):
     tweets = robust_collect_tweets(
         user_id=user['id'], tweet_mode='extended', count=tweets_per_user)
     if tweets:
+        print('Collected tweets for {}'.format(user['screen_name']))
         return tweets
     else:
         return []

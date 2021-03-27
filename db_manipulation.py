@@ -48,7 +48,7 @@ def preprocess_tweets(db, pipeline):
     add_new_column(update_c, "tweets", "processed_text", "text")
     
     for user_id, in get_distinct_table_columns(user_c, "users", ["id"]):
-        for text, tweet_id in get_user_tweets(tweet_c, user_id, processed=False):                                                     (user_id)):
+        for text, tweet_id in get_user_tweets(tweet_c, user_id, processed=False):                                                     
             processed_tweet = pipeline(text)
             data = (processed_tweet, tweet_id)
             update_tweet_processed_text(update_c, data)
@@ -180,7 +180,7 @@ def tweets_counter(db):
     negative_tweets_count = 0
 
     for label, in get_table_columns(tweet_c, "tweets", ["label"]):
-            tweets_count += 1
+        tweets_count += 1
         if label == 1:
             positive_tweets_count += 1
         else:
