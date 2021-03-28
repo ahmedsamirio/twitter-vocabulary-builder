@@ -10,6 +10,7 @@ import time
 import twitter
 
 import numpy as np
+import pymongo
 
 
 def oauth_login():
@@ -143,7 +144,7 @@ def stream_from_users(twitter_api, user, tweets_per_user, friends_per_user, mong
     collected_users_list.append(user['id'])
 
     if len(collected_users_list) % 10 == 0:
-        print("Collect user: %d user\nCollected tweets: %d tweet\nDuration: %d seconds" %
+        print("Collected users: %d user\nCollected tweets: %d tweet\nDuration: %d seconds" %
               (len(collected_users_list), tweets_count, time.time() - start_time), "\n", file=sys.stderr)
 
     if depth < limit_depth:
@@ -160,18 +161,22 @@ def stream_from_users(twitter_api, user, tweets_per_user, friends_per_user, mong
                 if friend['id'] not in collected_users_list:
                     _ = stream_from_users(twitter_api, friend, tweets_per_user, friends_per_user,
                                           mongo_db, depth+1)
+                else:
+                    new_friend = np.random.choice(friends+followers, 1)
+                    _ = stream_from_users(twitter_api, new_friend, tweets_per_user, friends_per_user,
+                                          mongo_db, depth+1)
     # else:
     #     print("Collected tweets: %d tweet\nDuration: %d seconds" %
     #           (tweets_count, time.time() - start_time), "\n")
 
 
-def collect_tweets(twitter_api, user, tweets_per_user):
+def collect_tweets(twitter_api, user, tweets_per_user, include_rts=False):
     """Returns a number of tweet objects from a user."""
     robust_collect_tweets = partial(
         make_twitter_request, twitter_api.statuses.user_timeline)
 
     tweets = robust_collect_tweets(
-        user_id=user['id'], tweet_mode='extended', count=tweets_per_user)
+        user_id=user['id'], tweet_mode='extended', count=tweets_per_user, include_rts=include_rts)
     if tweets:
         # print('Collected tweets for {}'.format(user['screen_name']))
         return tweets
@@ -246,7 +251,9 @@ def store_tweets(twitter_api, tweets, user, db, db_cursor):
         db.commit()
 
 def save_to_mongo(data, mongo_db, mongo_db_coll):
-    coll = mongo_db[mongo_db_coll]
+    client = pymongo.MongoClient('localhost', 27017)
+    db = client[mongo_db]
+    coll = db[mongo_db_coll]
 
     return coll.insert(data)   
 

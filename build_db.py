@@ -7,9 +7,6 @@ if __name__ == "__main__":
 
     twitter_api = oauth_login()
 
-    mongo_db = create_mongo_db()
-
-
     print('Collecting users and tweets...\n', file=sys.stderr)
     # Collects the user object of the seed screen_name
     seed_users = collect_users(twitter_api, seed_names)
