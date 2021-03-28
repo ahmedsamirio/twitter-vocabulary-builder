@@ -15,5 +15,4 @@ if __name__ == "__main__":
 
         stream_from_users(twitter_api, user, tweets_per_user, friends_per_user, mongo_db, 0)
 
-    print("Collected tweets: %d tweet\nDuration: %d seconds" %
-              (tweets_count, time.time() - start_time), "\n")
+    print('Scraping finished.')

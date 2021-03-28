@@ -150,17 +150,19 @@ def stream_from_users(twitter_api, user, tweets_per_user, friends_per_user, mong
         friends = collect_friends(twitter_api, user, friends_per_user)
         followers = collect_followers(twitter_api, user, friends_per_user)
 
-        # randomly select n friends and followers from the merged lists
-        friends = np.random.choice(friends+followers, friends_per_user)
+        # in case no friends or followers were returned by the collecting functions
+        if friends and followers:
 
-        for friend in friends:
+            # randomly select n friends and followers from the merged lists
+            friends = np.random.choice(friends+followers, friends_per_user)
 
-            if friend['id'] not in collected_users_list:
-                _ = stream_from_users(twitter_api, friend, tweets_per_user, friends_per_user,
-                                      mongo_db, depth+1)
-    else:
-        print("Collected tweets: %d tweet\nDuration: %d seconds" %
-              (tweets_count, time.time() - start_time), "\n")
+            for friend in friends:
+                if friend['id'] not in collected_users_list:
+                    _ = stream_from_users(twitter_api, friend, tweets_per_user, friends_per_user,
+                                          mongo_db, depth+1)
+    # else:
+    #     print("Collected tweets: %d tweet\nDuration: %d seconds" %
+    #           (tweets_count, time.time() - start_time), "\n")
 
 
 def collect_tweets(twitter_api, user, tweets_per_user):
@@ -171,7 +173,7 @@ def collect_tweets(twitter_api, user, tweets_per_user):
     tweets = robust_collect_tweets(
         user_id=user['id'], tweet_mode='extended', count=tweets_per_user)
     if tweets:
-        print('Collected tweets for {}'.format(user['screen_name']))
+        # print('Collected tweets for {}'.format(user['screen_name']))
         return tweets
     else:
         return []
