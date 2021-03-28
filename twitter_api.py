@@ -143,8 +143,8 @@ def stream_from_users(twitter_api, user, tweets_per_user, friends_per_user, mong
     collected_users_list.append(user['id'])
 
     if len(collected_users_list) % 10 == 0:
-        print("Collected tweets: %d tweet\nDuration: %d seconds" %
-              (tweets_count, time.time() - start_time), "\n")
+        print("Collect user: %d user\nCollected tweets: %d tweet\nDuration: %d seconds" %
+              (len(collected_users_list), tweets_count, time.time() - start_time), "\n", file=sys.stderr)
 
     if depth < limit_depth:
         friends = collect_friends(twitter_api, user, friends_per_user)

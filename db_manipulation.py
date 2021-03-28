@@ -30,7 +30,6 @@ def create_db(db_name):
 def create_mongo_db():
     myclient = pymongo.MongoClient("mongodb://localhost:27017/")
     db = myclient["twitter_stream"]
-
     return db
 
 
