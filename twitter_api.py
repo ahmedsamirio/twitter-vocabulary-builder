@@ -147,7 +147,7 @@ def stream_from_users(twitter_api, user, tweets_per_user, friends_per_user, mong
     if tweets:
         _ = save_to_mongo(tweets, mongo_db, "tweets")
         _ = save_to_mongo(user, mongo_db, "users")
-        
+
 
     tweets_count += len(tweets)
     collected_users_list.append(user['id'])
@@ -198,7 +198,7 @@ def collect_tweets(twitter_api, user, tweets_per_user):
         tweets = []
 
     results += tweets
-    print('Fetched {0} tweets for {1}'.format(len(tweets), user['screen_name']), file=sys.stderr)
+    print('Fetched {0} tweets for {1}'.format(len(tweets), user['id']), file=sys.stderr)
     page_num = 1
 
 
@@ -212,9 +212,9 @@ def collect_tweets(twitter_api, user, tweets_per_user):
         kw['max_id'] = min([tweet['id'] for tweet in tweets]) - 1
         tweets = robust_collect_tweets(**kw)
         results += tweets
-        print('Fetched {0} tweets for {1}'.format(len(tweets), user['screen_name']), file=sys.stderr)
+        print('Fetched {0} tweets for {1}'.format(len(tweets), user['id']), file=sys.stderr)
 
-    print('Done fetching tweets for {0}'.format(user['screen_name']), file=sys.stderr)
+    print('Done fetching tweets for {0}\n'.format(user['id']), file=sys.stderr)
     
     return results[:tweets_per_user]
 
