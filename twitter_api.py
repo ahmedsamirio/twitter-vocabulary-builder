@@ -135,7 +135,15 @@ def stream_from_users(twitter_api, user, tweets_per_user, friends_per_user, mong
     global limit_depth  # global variable to limit the recursion
     global start_time  # global variable to calculate the duration
 
-    tweets = collect_tweets(twitter_api, user, tweets_per_user)
+    try:
+        tweets = collect_tweets(twitter_api, user, tweets_per_user)
+    except JSONDecodeError:
+        print("Encountered JSONDecodeError with user: {}. Trying again.", user['screen_name'], file=sys.stderr)
+        try:
+            tweets = collect_tweets(twitter_api, user, tweets_per_user)
+        except JSONDecodeError:
+            int("Encountered JSONDecodeError again", file=sys.stderr)
+            
     if tweets:
         _ = save_to_mongo(tweets, mongo_db, "tweets")
         _ = save_to_mongo(user, mongo_db, "users")
@@ -161,10 +169,6 @@ def stream_from_users(twitter_api, user, tweets_per_user, friends_per_user, mong
                 if friend['id'] not in collected_users_list:
                     _ = stream_from_users(twitter_api, friend, tweets_per_user, friends_per_user,
                                           mongo_db, depth+1)
-                else:
-                    new_friend = np.random.choice(friends+followers, 1)
-                    _ = stream_from_users(twitter_api, new_friend, tweets_per_user, friends_per_user,
-                                          mongo_db, depth+1)
     # else:
     #     print("Collected tweets: %d tweet\nDuration: %d seconds" %
     #           (tweets_count, time.time() - start_time), "\n")
@@ -175,7 +179,7 @@ def collect_tweets(twitter_api, user, tweets_per_user, include_rts=False):
     robust_collect_tweets = partial(
         make_twitter_request, twitter_api.statuses.user_timeline)
 
-    tweets = robust_collect_tweets(
+    response  = robust_collect_tweets(
         user_id=user['id'], tweet_mode='extended', count=tweets_per_user, include_rts=include_rts)
     if tweets:
         # print('Collected tweets for {}'.format(user['screen_name']))
@@ -199,8 +203,9 @@ def collect_friends(twitter_api, user, friends_per_user):
 
         if len(friends) >= friends_per_user or response is None:
             break
+    if friends:
+        friends = [user_obj for user_obj in friends if not user_obj['verified']]
 
-    # print('{} friends: {}'.format(user['screen_name'], ', '.join(friends[:friends_per_user])))
     return friends
 
 def collect_followers(twitter_api, user, friends_per_user):
@@ -219,7 +224,9 @@ def collect_followers(twitter_api, user, friends_per_user):
         if len(followers) >= friends_per_user or response is None:
             break
 
-    # print('{} followers: {}'.format(user['screen_name'], ', '.join(followers[:friends_per_user])))
+    if followers:
+        followers = [user_obj for user_obj in followers if not user_obj['verified']]
+
     return followers
 
 
