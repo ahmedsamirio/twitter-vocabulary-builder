@@ -147,6 +147,7 @@ def stream_from_users(twitter_api, user, tweets_per_user, friends_per_user, mong
     if tweets:
         _ = save_to_mongo(tweets, mongo_db, "tweets")
         _ = save_to_mongo(user, mongo_db, "users")
+        
 
     tweets_count += len(tweets)
     collected_users_list.append(user['id'])
@@ -174,18 +175,48 @@ def stream_from_users(twitter_api, user, tweets_per_user, friends_per_user, mong
     #           (tweets_count, time.time() - start_time), "\n")
 
 
-def collect_tweets(twitter_api, user, tweets_per_user, include_rts=False):
+def collect_tweets(twitter_api, user, tweets_per_user):
     """Returns a number of tweet objects from a user."""
     robust_collect_tweets = partial(
         make_twitter_request, twitter_api.statuses.user_timeline)
 
-    response  = robust_collect_tweets(
-        user_id=user['id'], tweet_mode='extended', count=tweets_per_user, include_rts=include_rts)
-    if tweets:
-        # print('Collected tweets for {}'.format(user['screen_name']))
-        return tweets
-    else:
-        return []
+    kw = {
+        'count': 200,
+        'trim_user': 'true',
+        'include_rts': 'false',
+        'since_id': 1 ,
+        'user_id': user['id']
+    }
+
+
+    max_pages = 16
+    results = []
+
+    tweets  = robust_collect_tweets(**kw)
+
+    if tweets is None:
+        tweets = []
+
+    results += tweets
+    print('Fetched {0} tweets for {1}'.format(len(tweets), user['screen_name']), file=sys.stderr)
+    page_num = 1
+
+
+    # tested increasing tweets_per_user to 300 for example, and the result was 3 requests that didn't achieve
+    # the required number of 200. So better to set it this way for now to prevent bleeding requests for extra
+    # 50 tweets.
+    if tweets_per_user == kw['count']:
+        page_num = max_pages
+
+    while page_num < max_pages and len(tweets) > 0 and len(results) < tweets_per_user:
+        kw['max_id'] = min([tweet['id'] for tweet in tweets]) - 1
+        tweets = robust_collect_tweets(**kw)
+        results += tweets
+        print('Fetched {0} tweets for {1}'.format(len(tweets), user['screen_name']), file=sys.stderr)
+
+    print('Done fetching tweets for {0}'.format(user['screen_name']), file=sys.stderr)
+    
+    return results[:tweets_per_user]
 
 
 def collect_friends(twitter_api, user, friends_per_user):
