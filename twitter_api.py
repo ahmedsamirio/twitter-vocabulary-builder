@@ -137,12 +137,12 @@ def stream_from_users(twitter_api, user, tweets_per_user, friends_per_user, mong
 
     try:
         tweets = collect_tweets(twitter_api, user, tweets_per_user)
-    except JSONDecodeError:
+    except ValueError:
         print("Encountered JSONDecodeError with user: {}. Trying again.", user['screen_name'], file=sys.stderr)
         try:
             tweets = collect_tweets(twitter_api, user, tweets_per_user)
-        except JSONDecodeError:
-            int("Encountered JSONDecodeError again", file=sys.stderr)
+        except ValueError:
+            print("Encountered JSONDecodeError again", file=sys.stderr)
             
     if tweets:
         _ = save_to_mongo(tweets, mongo_db, "tweets")
@@ -157,8 +157,17 @@ def stream_from_users(twitter_api, user, tweets_per_user, friends_per_user, mong
               (len(collected_users_list), tweets_count, time.time() - start_time), "\n", file=sys.stderr)
 
     if depth < limit_depth:
-        friends = collect_friends(twitter_api, user, friends_per_user)
-        followers = collect_followers(twitter_api, user, friends_per_user)
+        try:
+            friends = collect_friends(twitter_api, user, friends_per_user)
+            followers = collect_followers(twitter_api, user, friends_per_user)
+        except ValueError:
+            print("Encountered JSONDecodeError. Trying again...", file=sys.stderr)
+            try:
+                friends = collect_friends(twitter_api, user, friends_per_user)
+                followers = collect_followers(twitter_api, user, friends_per_user)
+            except ValueError:
+                print("Encountered JSONDecodeError", file=sys.stderr)
+                friends, followers = [], []
 
         # in case no friends or followers were returned by the collecting functions
         if friends and followers:
