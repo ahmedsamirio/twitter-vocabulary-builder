@@ -372,9 +372,9 @@ from datetime import datetime
 
 
 def save_model(model, filename, save_dir='models'):
-    filename = '{}_{}.pkl'.format(filename, datetime.now())
+    filename = '{}_{}'.format(filename, datetime.now())
     filepath = os.path.join(save_dir, filename)
-    file = open(filepath+'.pkl', 'wb')
+    file = open(filepath+, 'wb')
     
     pk.dump(model, file)
     print('Model saved as {} at {}/'.format(filename, save_dir) , file=sys.stderr)
