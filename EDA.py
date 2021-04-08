@@ -84,6 +84,21 @@ users_df.followers_count.plot(kind='box', ax=axes[1], title='Followers Count Boc
 
 users_df.loc[:, ['friends_count', 'followers_count']].describe()
 
+# These two distributions look log normal to me, so let's look at their log transformation.
+
+# +
+plt.figure(figsize=(14, 5))
+
+plt.subplot(1, 2, 1)
+sns.histplot(data=users_df.query('friends_count > 0'), x='friends_count', log_scale=True);
+plt.title('Log Transformation of Friends Count')
+
+plt.subplot(1, 2, 2)
+sns.histplot(data=users_df.query('followers_count > 0'), x='followers_count', log_scale=True)
+plt.title('Log Transformation of Followers Count');
+
+# -
+
 # The outliers won't enable any real insight to be taken from the distribution of users, so let's take a look at a clean version of the data.
 
 thresh = 0.95
@@ -113,9 +128,6 @@ fig, axes = plt.subplots(1, 2, figsize=(15, 4))
 users_df[~outliers_mask].friends_count.plot(kind='hist', ax=axes[0], bins=50, title='Friends Count Boxplot')
 users_df[~outliers_mask].followers_count.plot(kind='hist', ax=axes[1], bins=50, title='Followers Count Boxplot');
 # -
-
-# new addition
-sns.histplot(data=users_df.query('friends_count > 0'), x='friends_count', log_scale=True);
 
 users_df[~outliers_mask].plot(kind='scatter',
                               x='friends_count',
