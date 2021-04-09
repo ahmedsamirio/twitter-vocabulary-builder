@@ -242,27 +242,11 @@ users_df[outliers_mask].plot(kind='scatter',
                              figsize=(10, 6),
                              alpha=0.2);
 
-
 # In the previous version, this scatter plot was a little bit different, as the maximum friends count was 9k, but now it is 69k.
 #
 # Previous version analysis:
 #
 #     There is some sort of linear relationship going on below 25000 followers. I guess that these are users that get followers by following other users in return of these users following them back. That's why these have an apparent linear relationship between friends and followers count. On the other hand we can see the other distribution of users who don't show a linear relationship between these two features, and these may be the users who have amassed a following based on their activity, and not relying on quid pro quo agreement with other users to follow them and expect a follow back.
-
-def scatter_cluster(tmp, size_col='statuses_count', scale=1):
-    plt.figure(figsize=(10, 6))
-    plt.scatter(x=tmp['friends_count'],
-                y=tmp['followers_count'],
-                s=tmp[size_col]/scale,
-                c=tmp['months'])
-    plt.colorbar()
-
-
-scatter_cluster(users_df[outliers_mask], 'statuses_count', scale=1000)
-
-# ## Clustering users based on friends and followers count
-#
-# I have removed all previous attempts to cluster using kmeans as they were subpar compared to gaussian mixture models.
 
 # +
 import pytz
@@ -280,12 +264,58 @@ users_df['days'] = users_df.delta.apply(lambda x: x.years * 365 + x.days)
 
 cols = ['friends_count', 'followers_count', 'statuses_count', 'favourites_count', 'months']
 
+
+# -
+
+def scatter_cluster(tmp, size_col='statuses_count', scale=1):
+    plt.figure(figsize=(10, 6))
+    plt.scatter(x=tmp['friends_count'],
+                y=tmp['followers_count'],
+                s=tmp[size_col]/scale,
+                c=tmp['months'])
+    plt.colorbar()
+
+
+scatter_cluster(users_df[outliers_mask], 'statuses_count', scale=1000)
+
+# ## Clustering users based on friends and followers count
+#
+# I have removed all previous attempts to cluster using kmeans as they were subpar compared to gaussian mixture models.
+
+# +
+# Now it's time to save these results to enable further analysis based on them
+import os
+import sys
+import pickle as pk
+
+from datetime import datetime
+
+
+def save_model(model, filename, save_dir='models'):
+    filename = '{}_{}'.format(filename, datetime.now())
+    filepath = os.path.join(save_dir, filename)
+    file = open(filepath, 'wb')
+    
+    pk.dump(model, file)
+    print('Model saved as {} at {}/'.format(filename, save_dir) , file=sys.stderr)
+    
+def load_model(filename, save_dir='models'):
+    filepath = os.path.join(save_dir, filename)
+    file = open(filepath+'.pkl', 'rb')
+    
+    model = pk.load(file)
+    print('{} loaded from {}'.format(filename, save_dir), file=sys.stderr)
+    return model
+
+
 # +
 from sklearn.mixture import GaussianMixture
 
-n = 10
-gm = GaussianMixture(n_components=n, n_init=20, random_state=seed)
-gm.fit(users_df[outliers_mask][cols])
+# n = 10
+# gm = GaussianMixture(n_components=n, n_init=20, random_state=seed)
+# gm.fit(users_df[outliers_mask][cols])
+
+gm = load_model('gm_95th_2021-04-08 13:20:35.718419.pkl')
 
 y_pred_4 = gm.predict(users_df.loc[outliers_mask, cols])
 
@@ -329,10 +359,14 @@ sns.pairplot(gm_0[cols], height=1.5);
 
 gm_0.head(50)
 
+# Inactive and new users
+
 scatter_cluster(gm_1, scale=100)
 gm_1[cols].describe()
 
 sns.pairplot(gm_1[cols], height=1.5);
+
+# Users who aren't really active.
 
 scatter_cluster(gm_2, scale=100)
 gm_2[cols].describe()
@@ -341,6 +375,8 @@ gm_2.head(50)
 
 sns.pairplot(gm_2[cols], height=1.5);
 
+# Influencers
+
 scatter_cluster(gm_3, scale=100)
 gm_3[cols].describe()
 
@@ -348,12 +384,16 @@ gm_3
 
 sns.pairplot(gm_3[cols], height=1.5);
 
+# Mostly official and non-official pages that represents entities or personalities.
+
 scatter_cluster(gm_4, scale=100)
 gm_4[cols].describe()
 
-gm_4.head(50)
+gm_4.head(50).sort_values('statuses_count')[['name']+cols]
 
 sns.pairplot(gm_4[cols], height=1.5);
+
+# This cluster might have some high followers, but it shouldn't fool you as most of them got it using follow backs. You can also see it from the low ratio between favourites and statuses count. You can also see some users with really low statuses count, but their followers is high.
 
 scatter_cluster(gm_5, scale=100)
 gm_5[cols].describe()
@@ -363,32 +403,64 @@ gm_5.sort_values('followers_count').head(50)
 sns.pairplot(gm_5[cols], height=1.5);
 
 # +
-# Now it's time to save these results to enable further analysis based on them
-import os
-import sys
-import pickle as pk
-
-from datetime import datetime
-
-
-def save_model(model, filename, save_dir='models'):
-    filename = '{}_{}'.format(filename, datetime.now())
-    filepath = os.path.join(save_dir, filename)
-    file = open(filepath+, 'wb')
-    
-    pk.dump(model, file)
-    print('Model saved as {} at {}/'.format(filename, save_dir) , file=sys.stderr)
-    
-def load_model(filename, save_dir='models'):
-    filepath = os.path.join(save_dir, filename)
-    file = open(filepath+'.pkl', 'rb')
-    
-    model = pk.load(file)
-    print('{} loaded from {}'.format(filename, save_dir), file=sys.stderr)
-
-
+# save_model(gm, 'gm_95th')
 # -
 
-save_model(gm, 'gm_95th')
-
 gm__2 = load_model('gm_2021-04-07 12:55:26.141024.pkl')
+
+# # Clustering using PCA and KMeans
+#
+#
+# First let's reduce the data using PCA and visualize it 
+
+# +
+from sklearn.decomposition import PCA
+
+pca = PCA()
+users_2d = pca.fit_transform(users_df[outliers_mask][cols])
+# -
+
+cumsum = np.cumsum(pca.explained_variance_ratio_)
+d = np.argmax(cumsum >= 0.95) + 1
+
+plt.scatter(users_2d[:, 1], users_2d[:, 2])
+
+# +
+from sklearn.cluster import KMeans
+from sklearn.metrics import silhouette_score
+
+K = [3, 4, 5, 6]
+scores = []
+
+for k in K:
+    kmeans = KMeans(n_clusters=k)
+    kmeans.fit(users_2d)
+    scores.append(silhouette_score(users_2d, kmeans.labels_))
+    
+plt.plot(K, scores, '-o');
+# -
+
+k = 4  # highest score
+kmeans = KMeans(n_clusters=k)
+kmeans.fit(users_2d)
+
+km_0 = users_df[outliers_mask][kmeans.labels_ == 0]
+km_1 = users_df[outliers_mask][kmeans.labels_ == 1]
+km_2 = users_df[outliers_mask][kmeans.labels_ == 2]
+km_3 = users_df[outliers_mask][kmeans.labels_ == 3]
+
+scatter_cluster(km_0, scale=100)
+km_0[cols].describe()
+
+scatter_cluster(km_1, scale=100)
+km_1[cols].describe()
+
+scatter_cluster(km_2, scale=100)
+km_2[cols].describe()
+
+scatter_cluster(km_3, scale=100)
+km_3[cols].describe()
+
+# The results of kmeans aren't nearly as good as the gaussian mixture.
+
+
