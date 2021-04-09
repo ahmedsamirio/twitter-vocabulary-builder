@@ -463,4 +463,10 @@ km_3[cols].describe()
 
 # The results of kmeans aren't nearly as good as the gaussian mixture.
 
+# engineered features
+users_df['followers_friends_ratio'] = users_df['followers_count'] / users_df['friends_count']
+users_df['statuses_favourites_ratio'] = users_df['statuses_count'] / users_df['favourites_count']
+users_df['statuses_per_month'] = users_df['statuses_count'] / users_df['months']
+users_df['favourites_per_month'] = users_df['favourites_count'] / users_df['months']
+
 
