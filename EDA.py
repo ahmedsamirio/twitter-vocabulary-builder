@@ -355,11 +355,73 @@ gm_5 = users_df[outliers_mask][y_pred_4 == 5]
 scatter_cluster(gm_0, scale=100)
 gm_0[cols].describe()
 
-sns.pairplot(gm_0[cols], height=1.5);
+sns.pairplot(gm_0[cols], height=1.5, kind='scatter', plot_kws={'alpha': 0.1});
 
-gm_0.head(50)
+gm_0.head(50).sort_values('followers_count', ascending=False)[['screen_name']+cols]
 
-# Inactive and new users
+sns.scatterplot(data=gm_0, x='friends_count', y='followers_count', alpha=0.2);
+
+sns.histplot(data=gm_0.query('friends_count > 0'), x='friends_count', log_scale=False);
+
+sns.histplot(data=gm_0.query('followers_count > 0'), x='followers_count', log_scale=False);
+
+sns.scatterplot(data=gm_0, x='friends_count', y='favourites_count', alpha=0.2);
+
+sns.scatterplot(data=gm_0, x='friends_count', y='statuses_count', alpha=0.2);
+
+# Judging by the average friends count which is higher than followers count, and the average number of statuses and favourites compared to the number of months, these are the new and inactive users. The thing that brings this cluster together is the diminishing activity, whether in terms of original tweets, retweets or favourites.
+#
+# We can notice the spread of the distribution in friends count is more than followers count.
+#
+# We can also see along the the y axis, when friends count is near to zero, some profiles that have nearly now friends but have near thousands of followers. These are definetly pages.
+#
+# The way the this data was collected could enable more insight into this group, as the latest original 200 tweets (if they existed) were collected for every user. So if any of these users didn't have one original tweet or reply in the latest 200 tweets, then we can judge that they aren't active at all.
+
+# %%time
+db.tweets.count_documents({'user.screen_name': row.screen_name})
+
+# +
+result = db.tweets.aggregate(
+    [    {
+             '$match':
+             {
+                 'user.screen_name': 'MSha3bo'
+             }
+            
+         },
+         {
+             '$lookup':
+              {
+                'from': 'users',
+                'localField': 'user.screen_name',
+                'foreignField': 'screen_name',
+                'as': 'user_tweets'
+              }
+         },
+         {
+             '$group':
+              {
+                  '_id': '$user_tweets.screen_name',
+                  'count': {'$sum': 1}
+              }
+         }
+    ]
+)
+
+for i in result:
+    print(i)
+# -
+
+tmp = pd.DataFrame(list(db.tweets.find({'user.screen_name': 'MSha3bo'})))
+tmp.head()
+
+tmp[~tmp.id.duplicated()]
+
+tweets_count = []
+for i, row in gm_0.iterrows():
+    tweets_count.append(db.tweets.estimated_document_count({'user.screen_name': row.screen_name}))
+    print('\r{}'.format(i))
+#     gm_0['tweets_count'] = tweets_count
 
 scatter_cluster(gm_1, scale=100)
 gm_1[cols].describe()
@@ -464,9 +526,71 @@ km_3[cols].describe()
 # The results of kmeans aren't nearly as good as the gaussian mixture.
 
 # engineered features
-users_df['followers_friends_ratio'] = users_df['followers_count'] / users_df['friends_count']
-users_df['statuses_favourites_ratio'] = users_df['statuses_count'] / users_df['favourites_count']
-users_df['statuses_per_month'] = users_df['statuses_count'] / users_df['months']
-users_df['favourites_per_month'] = users_df['favourites_count'] / users_df['months']
+users_df['followers_friends_ratio'] = users_df['followers_count'] / (users_df['friends_count'] + 0.00001)
+users_df['statuses_favourites_ratio'] = users_df['statuses_count'] / (users_df['favourites_count'] + 0.00001)
+users_df['statuses_per_month'] = users_df['statuses_count'] / (users_df['months'] + 0.00001)
+users_df['favourites_per_month'] = users_df['favourites_count'] / (users_df['months'] + 0.00001)
 
+# +
+n = 10
 
+cols2 = cols + ['followers_friends_ratio', 'statuses_favourites_ratio',
+                'statuses_per_month', 'favourites_per_month']
+
+gm2 = GaussianMixture(n_components=n, n_init=20, random_state=92)
+gm2.fit(users_df[outliers_mask][cols2])
+
+y_pred_5 = gm2.predict(users_df.loc[outliers_mask, cols2])
+
+plt.figure(figsize=(10, 6))
+
+for label, color in zip(set(y_pred_5), 'bgrcmy'):
+    plt.scatter(x=users_df[outliers_mask][y_pred_5 == label]['friends_count'],
+                y=users_df[outliers_mask][y_pred_5 == label]['followers_count'],
+                c=color,
+                alpha=0.5,
+                label=label);
+
+plt.legend();
+
+# +
+plt.figure(figsize=(10, 6))
+for label, color in zip(set(y_pred_5), 'bgrcmy'):
+    plt.scatter(x=users_df[outliers_mask][y_pred_5 == label]['friends_count'],
+                y=users_df[outliers_mask][y_pred_5 == label]['followers_count'],
+                c=color,
+                s=users_df[outliers_mask][y_pred_5 == label]['statuses_count']/100,
+                alpha=0.5,
+                label=label);
+
+plt.legend();
+# -
+
+gm2_0 = users_df[outliers_mask][y_pred_5 == 0]
+gm2_1 = users_df[outliers_mask][y_pred_5 == 1]
+gm2_2 = users_df[outliers_mask][y_pred_5 == 2]
+gm2_3 = users_df[outliers_mask][y_pred_5 == 3]
+gm2_4 = users_df[outliers_mask][y_pred_5 == 4]
+gm2_5 = users_df[outliers_mask][y_pred_5 == 5]
+
+scatter_cluster(gm2_0, scale=100)
+gm2_0[cols].describe()
+
+scatter_cluster(gm2_1, scale=100)
+gm2_1[cols].describe()
+
+scatter_cluster(gm2_2, scale=100)
+gm2_2[cols].describe()
+
+scatter_cluster(gm2_3, scale=100)
+gm2_3[cols].describe()
+
+scatter_cluster(gm2_4, scale=100)
+gm2_4[cols].describe()
+
+scatter_cluster(gm2_5, scale=100)
+gm2_4[cols].describe()
+
+# The results were poor compared to the old gaussian mixture model.
+
+#
