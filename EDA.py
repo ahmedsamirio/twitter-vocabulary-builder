@@ -33,6 +33,12 @@ client.list_database_names()
 db = client['twitter_stream']
 db.list_collection_names()
 
+# +
+len(db.tweets.distinct('user.id')) == len(db.users.distinct('id'))
+
+# this means that all the tweets in the database are related only to users also in the database
+# -
+
 db.tweets.find_one()
 
 # querying tweets for certain user
@@ -57,12 +63,64 @@ screen_names = set(screen_names)
 print('Total number of users:', len(screen_names))
 
 # +
+results = db.tweets.aggregate([
+    {
+        '$unwind': '$user.id'
+    },
+    {
+        '$group':{
+            '_id': {
+                'user_id': '$user.id',
+                'screen_name': '$user.screen_name',
+                'tweet_id': '$id',
+            },
+            'count': {'$sum': 1}
+        }
+    },
+    {
+        '$group':{
+            '_id': {
+                'user_id':'$_id.user_id',
+                'screen_name': '$_id.screen_name',
+            },
+            'count': {'$sum': 1}
+        }
+    }
+])
+
+# count = 0
+# for i in results:
+#     count += 1
+# print('total count', count)
+
+# +
 # converting users collection into pandas dataframe
 import pandas as pd
 
 users_df = pd.DataFrame(list(db.users.find()))
 users_df.head()
+
+# users_df = pd.read_csv('users.csv', lineterminator='\n')
+# users_df.head()
+
+# +
+# add number of tweets present in db as feature
+total = 0
+count = 0
+for i in results:
+    user_id = i['_id']
+    index = users_df.query('id == @user_id').index
+    users_df.loc[index, 'tweets_count'] = i['count']
+    total += i['count']
+    count += 1
+    print('\r{}/{} added'.format(count, users_df.screen_name.nunique()), end='')
+    
+print('\nTotal number of tweets:', total)
 # -
+
+users_df.tweets_count.sum()
+
+len(db.tweets.distinct('id'))
 
 # how many duplicates do we have?
 print('Number of duplicated rows {0}'.format(users_df[users_df['id'].duplicated()].shape[0]))
@@ -72,6 +130,35 @@ users_df = users_df[~users_df['id'].duplicated()]
 
 # NaN per column
 users_df.isna().sum(axis=0)
+
+# fill out the last tweets count by the difference between the total distinct tweets in db and sum of dataframe
+users_df.loc[users_df.tweets_count.isna(), 'tweets_count'] = len(db.tweets.distinct('id')) -\
+                                                             users_df.tweets_count.sum().astype(int)
+
+users_df.tweets_count.sum()
+
+
+# ## Collecting number of available tweets per user
+
+def collect_tweets_counts(screen_name):
+    count = len(db.tweets.find({'user.screen_name': screen_name}).distinct('id'))
+    return count
+
+
+# +
+# tweets_count = []
+# i = 0
+# for _, row in users_df.iterrows():
+#     tweets_count.append(collect_tweets_counts(row.screen_name))
+#     i += 1
+#     print('\r{}/{}'.format(i, len(users_df)), end='')
+
+# users_df['tweets_count'] = tweets_count
+# users_df['tweets'] = users_df['tweets_count'] > 0
+
+# +
+# users_df.to_csv('users.csv', index=False)
+# -
 
 # ## Analyzing users' friends and followers distributions
 
@@ -352,10 +439,12 @@ gm_3 = users_df[outliers_mask][y_pred_4 == 3]
 gm_4 = users_df[outliers_mask][y_pred_4 == 4]
 gm_5 = users_df[outliers_mask][y_pred_4 == 5]
 
+cols = cols + ['tweets_count']
+
 scatter_cluster(gm_0, scale=100)
 gm_0[cols].describe()
 
-sns.pairplot(gm_0[cols], height=1.5, kind='scatter', plot_kws={'alpha': 0.1});
+sns.pairplot(data=gm_0, vars=cols, height=1.5, kind='scatter', plot_kws={'alpha': 0.1});
 
 gm_0.head(50).sort_values('followers_count', ascending=False)[['screen_name']+cols]
 
@@ -377,65 +466,114 @@ sns.scatterplot(data=gm_0, x='friends_count', y='statuses_count', alpha=0.2);
 #
 # The way the this data was collected could enable more insight into this group, as the latest original 200 tweets (if they existed) were collected for every user. So if any of these users didn't have one original tweet or reply in the latest 200 tweets, then we can judge that they aren't active at all.
 
-# %%time
-db.tweets.count_documents({'user.screen_name': row.screen_name})
+# +
+# # %%time
+# db.tweets.count_documents({'user.screen_name': row.screen_name})
 
 # +
-result = db.tweets.aggregate(
-    [    {
-             '$match':
-             {
-                 'user.screen_name': 'MSha3bo'
-             }
-            
-         },
-         {
-             '$lookup':
-              {
-                'from': 'users',
-                'localField': 'user.screen_name',
-                'foreignField': 'screen_name',
-                'as': 'user_tweets'
-              }
-         },
-         {
-             '$group':
-              {
-                  '_id': '$user_tweets.screen_name',
-                  'count': {'$sum': 1}
-              }
-         }
-    ]
-)
+# result = db.tweets.aggregate([
+#     {
+#          '$match':
+#          {
+#              'user.screen_name': 'MSha3bo'
+#          }        
+#     },
+#     {
+#         '$unwind': '$user.screen_name'
+#     },
+#     {
+#         '$lookup': {
+#             'from': 'users',
+#             'localField': 'user.screen_name',
+#             'foreignField': 'screen_name',
+#             'as': 'data'
+#         }
+#     },
+#     {
+#         '$group': {
+#             '_id': '$data.id',
+#             'count': {'$sum': 1}
+#         }
+#     }
+# ])
 
-for i in result:
-    print(i)
+# for i in result:
+#     print(i)
+
+# +
+# result = db.tweets.aggregate(
+#     [    {
+#              '$match':
+#              {
+#                  'user.screen_name': 'MSha3bo'
+#              }
+            
+#          },
+#          {
+#              '$lookup':
+#               {
+#                 'from': 'users',
+#                 'localField': 'user.screen_name',
+#                 'foreignField': 'screen_name',
+#                 'as': 'user_tweets'
+#               }
+#          },
+#          {
+#              '$group':
+#               {
+#                   '_id': '$user_tweets.screen_name',
+#                   'count': {'$sum': 1}
+#               }
+#          }
+#     ]
+# )
+
+# for i in result:
+#     print(i)
+
+# +
+# tmp = pd.DataFrame(list(db.tweets.find({'user.screen_name': 'MSha3bo'})))
+# tmp.head()
+
+# +
+# tmp[~tmp.id.duplicated()]
+
+# +
+# tweets_count = []
+# i = 0
+# for _, row in gm_0.iterrows():
+#     tweets_count.append(collect_tweets_counts(row.screen_name))
+#     i += 1
+#     print('\r{}/{}'.format(i, len(gm_0)), end='')
+# gm_0['tweets_count'] = tweets_count
 # -
 
-tmp = pd.DataFrame(list(db.tweets.find({'user.screen_name': 'MSha3bo'})))
-tmp.head()
+sns.histplot(data=gm_0, x='tweets_count');
 
-tmp[~tmp.id.duplicated()]
+# The assumption that I've made about the data was true, these are users who mostly don't even tweet.
 
-tweets_count = []
-for i, row in gm_0.iterrows():
-    tweets_count.append(db.tweets.estimated_document_count({'user.screen_name': row.screen_name}))
-    print('\r{}'.format(i))
-#     gm_0['tweets_count'] = tweets_count
+sns.scatterplot(data=gm_0, x='tweets_count', y='followers_count');
 
 scatter_cluster(gm_1, scale=100)
 gm_1[cols].describe()
 
-sns.pairplot(gm_1[cols], height=1.5);
+sns.pairplot(data=gm_1, vars=cols, height=1.5, plot_kws={'alpha': 0.2});
 
-# Users who aren't really active.
+# Users who aren't really active, but they are more active than the first cluster.
 
 scatter_cluster(gm_2, scale=100)
 gm_2[cols].describe()
 
 gm_2.head(50)
 
-sns.pairplot(gm_2[cols], height=1.5);
+sns.pairplot(data=gm_2, vars=cols, height=1.5, plot_kws={'alpha': 0.2});
+
+print('Percentage of users who tweet in cluster 2: {:.2f}%'.format(gm_2.query('tweets').size*100/ gm_2.size))
+print('Percentage of users who don\'t tweet in cluster 2: {:.2f}%'.format(gm_2.query('~tweets').size*100/ gm_2.size))
+
+users_df.query('tweets').size*100/users_df.size
+
+sns.histplot(data=users_df, x='tweets_count');
 
 # Influencers
 
@@ -444,7 +582,7 @@ gm_3[cols].describe()
 
 gm_3
 
-sns.pairplot(gm_3[cols], height=1.5);
+sns.pairplot(gm_3, vars=cols, height=1.5, plot_kws={'alpha': 0.2});
 
 # Mostly official and non-official pages that represents entities or personalities.
 
@@ -453,7 +591,7 @@ gm_4[cols].describe()
 
 gm_4.head(50).sort_values('statuses_count')[['name']+cols]
 
-sns.pairplot(gm_4[cols], height=1.5);
+sns.pairplot(gm_4, vars=cols, height=1.5, plot_kws={'alpha': 0.2});
 
 # This cluster might have some high followers, but it shouldn't fool you as most of them got it using follow backs. You can also see it from the low ratio between favourites and statuses count. You can also see some users with really low statuses count, but their followers is high.
 
@@ -462,7 +600,7 @@ gm_5[cols].describe()
 
 gm_5.sort_values('followers_count').head(50)
 
-sns.pairplot(gm_5[cols], height=1.5);
+sns.pairplot(gm_5, vars=cols, height=1.5, plot_kws={'alpha': 0.2});
 
 # +
 # save_model(gm, 'gm_95th')
