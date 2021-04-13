@@ -47,7 +47,7 @@ limit = 10
 for tweet in db.tweets.find({'user.screen_name': 'MSha3bo'}):
     if count > limit:
         break
-    pprint(tweet['full_text'])
+    pprint(tweet)
     count += 1
 
 # querying one user
@@ -63,37 +63,6 @@ screen_names = set(screen_names)
 print('Total number of users:', len(screen_names))
 
 # +
-results = db.tweets.aggregate([
-    {
-        '$unwind': '$user.id'
-    },
-    {
-        '$group':{
-            '_id': {
-                'user_id': '$user.id',
-                'screen_name': '$user.screen_name',
-                'tweet_id': '$id',
-            },
-            'count': {'$sum': 1}
-        }
-    },
-    {
-        '$group':{
-            '_id': {
-                'user_id':'$_id.user_id',
-                'screen_name': '$_id.screen_name',
-            },
-            'count': {'$sum': 1}
-        }
-    }
-])
-
-# count = 0
-# for i in results:
-#     count += 1
-# print('total count', count)
-
-# +
 # converting users collection into pandas dataframe
 import pandas as pd
 
@@ -102,15 +71,58 @@ users_df.head()
 
 # users_df = pd.read_csv('users.csv', lineterminator='\n')
 # users_df.head()
+# -
+
+# aggregate users tweets count, average retweet and favorite count, and total retweet and favorite count
+results = db.tweets.aggregate([
+    {
+        '$unwind': '$user.id'
+    },
+    {
+        '$group':{
+            '_id': {
+                'user_id': '$user.id',
+                'tweet_id': '$id',
+                'retweet_count': '$retweet_count',
+                'favorite_count': '$favorite_count'
+            },
+            'count': {'$sum': 1},
+        }
+    },
+    {
+        '$group':{
+            '_id': {
+                'user_id':'$_id.user_id',
+            },
+            'count': {'$sum': 1},
+            'avg_rt': {'$avg': '$_id.retweet_count'},
+            'avg_fv': {'$avg': '$_id.favorite_count'},
+            'total_rt': {'$sum': '$_id.retweet_count'},
+            'total_fv': {'$sum': '$_id.favorite_count'},
+        }
+    }
+    ], allowDiskUse=True
+)
+# count = 0
+# for i in results:
+#     print(i)
+#     count += 1
+#     if count > 10: break
+# print('total count', count)
 
 # +
-# add number of tweets present in db as feature
+# add tweets_count, avg_retweets, avg_favorites, total_retweets, total_favorites
 total = 0
 count = 0
 for i in results:
-    user_id = i['_id']
+#     print(i); break
+    user_id = i['_id']['user_id']
     index = users_df.query('id == @user_id').index
     users_df.loc[index, 'tweets_count'] = i['count']
+    users_df.loc[index, 'avg_favorites'] = i['avg_fv']
+    users_df.loc[index, 'avg_retweets'] = i['avg_rt']
+    users_df.loc[index, 'total_favorites'] = i['total_fv']
+    users_df.loc[index, 'total_retweets'] = i['total_rt']
     total += i['count']
     count += 1
     print('\r{}/{} added'.format(count, users_df.screen_name.nunique()), end='')
