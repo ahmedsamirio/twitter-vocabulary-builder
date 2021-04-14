@@ -202,9 +202,6 @@ results = db.tweets.aggregate([
     {
         '$match': {'user.id': 474886468}
     },
-#     {
-#         '$unwind': '$user.screen_name'
-#     },
     {
         '$group':{
             '_id': {
@@ -218,28 +215,28 @@ results = db.tweets.aggregate([
             'favorite_count': {'$max': '$favorite_count'}
         }
     },
-#     {
-#         '$group':{
-#             '_id': {
-#                 'user_id':'$_id.user_id',
-#                 'screen_name': '$_id.screen_name'
-#             },
-#             'count': {'$sum': 1},
-#             'avg_rt': {'$avg': '$retweet_count'},
-#             'avg_fv': {'$avg': '$favorite_count'},
-#             'total_rt': {'$sum': '$retweet_count'},
-#             'total_fv': {'$sum': '$favorite_count'},
-#         }
-#     }
+    {
+        '$group':{
+            '_id': {
+                'user_id':'$_id.user_id',
+                'screen_name': '$_id.screen_name'
+            },
+            'count': {'$sum': 1},
+            'avg_rt': {'$avg': '$retweet_count'},
+            'avg_fv': {'$avg': '$favorite_count'},
+            'total_rt': {'$sum': '$retweet_count'},
+            'total_fv': {'$sum': '$favorite_count'},
+        }
+    }
     ], allowDiskUse=True)
 
 ids = []
 for i in results: 
-    if i['_id']['tweet_id'] in ids:
-        print('DUPLICATE', i)
+#     if i['_id']['tweet_id'] in ids:
+#         print('DUPLICATE', i)
     print(i)
-    ids.append(i['_id']['tweet_id'])
-print(len(ids), len(set(ids)))
+#     ids.append(i['_id']['tweet_id'])
+# print(len(ids), len(set(ids)))
 # -
 
 # I figured out the problem, it is that the data was collected in multiple times, and several users were duplicated with their tweets, however their tweets had different number of favorites and retweets now, and since I was using retweet and favorite counts as ids, duplicates of tweets weren't duplicates anymore.
