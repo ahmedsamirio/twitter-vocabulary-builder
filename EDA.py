@@ -75,13 +75,15 @@ users_df.head()
 
 # aggregate users tweets count, average retweet and favorite count, and total retweet and favorite count
 results = db.tweets.aggregate([
-    {
-        '$unwind': '$user.id'
-    },
+#     {
+#         '$unwind': '$user.id'
+#     },
     {
         '$group':{
             '_id': {
                 'user_id': '$user.id',
+                'screen_name': '$user.screen_name',
+                'created_at': '$created_at',
                 'tweet_id': '$id',
                 'retweet_count': '$retweet_count',
                 'favorite_count': '$favorite_count'
@@ -93,6 +95,7 @@ results = db.tweets.aggregate([
         '$group':{
             '_id': {
                 'user_id':'$_id.user_id',
+#                 'screen_name': '$_id.screen_name'
             },
             'count': {'$sum': 1},
             'avg_rt': {'$avg': '$_id.retweet_count'},
@@ -143,34 +146,105 @@ users_df = users_df[~users_df['id'].duplicated()]
 # NaN per column
 users_df.isna().sum(axis=0)
 
+# +
 # fill out the last tweets count by the difference between the total distinct tweets in db and sum of dataframe
-users_df.loc[users_df.tweets_count.isna(), 'tweets_count'] = len(db.tweets.distinct('id')) -\
-                                                             users_df.tweets_count.sum().astype(int)
+# users_df.loc[users_df.tweets_count.isna(), 'tweets_count'] = len(db.tweets.distinct('id')) -\
+#                                                              users_df.tweets_count.sum().astype(int)
+# -
 
 users_df.tweets_count.sum()
 
+len(db.tweets.distinct('id'))
 
-# ## Collecting number of available tweets per user
+users_df.tweets_count.sum() - len(db.tweets.distinct('id'))
 
-def collect_tweets_counts(screen_name):
-    count = len(db.tweets.find({'user.screen_name': screen_name}).distinct('id'))
+users_df.query('tweets_count > 200')[['id', 'tweets_count']]
+
+
+# Let's check the real tweets_count for each of these users.
+
+def collect_tweets_count(user_id):
+    count = len(db.tweets.find({'user.id': user_id}).distinct('id'))
     return count
 
 
 # +
-# tweets_count = []
-# i = 0
-# for _, row in users_df.iterrows():
-#     tweets_count.append(collect_tweets_counts(row.screen_name))
-#     i += 1
-#     print('\r{}/{}'.format(i, len(users_df)), end='')
+users_tweets_count = []
+users = users_df.query('tweets_count > 200').id
+tweets_count = users_df.query('tweets_count > 200').tweets_count
+for user_id, user_count in zip(users, tweets_count):
+    user_tweets_count = collect_tweets_count(user_id)
+    print('{}, {}, {}'.format(user_id, user_count, user_tweets_count))
+    users_tweets_count.append(user_tweets_count)
+    
+print('Difference between old and new tweets count: {}'.format(tweets_count.sum() - sum(users_tweets_count)))
+# -
 
-# users_df['tweets_count'] = tweets_count
-# users_df['tweets'] = users_df['tweets_count'] > 0
+# But that didn't account for the total difference. Where is the problem exactly, is it in the query?
+#
+# I can check a random subset of the data for differences between the query and fetching the number of distinct tweets using the function above.
 
 # +
-# users_df.to_csv('users.csv', index=False)
+# users_tweets_count = []
+# sample = users_df.sample(20)
+# users = sample.id
+# tweets_count = sample.tweets_count
+# for user_id, user_count in zip(users, tweets_count):
+#     user_tweets_count = collect_tweets_count(user_id)
+#     print('{}, {}, {}'.format(user_id, user_count, user_tweets_count))
+#     users_tweets_count.append(user_tweets_count)
+    
+# print('Difference between old and new tweets count: {}'.format(tweets_count.sum() - sum(users_tweets_count)))
+
+# +
+# aggregate users tweets count, average retweet and favorite count, and total retweet and favorite count
+results = db.tweets.aggregate([
+    {
+        '$match': {'user.id': 474886468}
+    },
+#     {
+#         '$unwind': '$user.screen_name'
+#     },
+    {
+        '$group':{
+            '_id': {
+                'user_id': '$user.id',
+                'screen_name': '$user.screen_name',
+                'tweet_id': '$id',
+
+            },
+            'count': {'$sum': 1},
+            'retweet_count': {'$max': '$retweet_count'},
+            'favorite_count': {'$max': '$favorite_count'}
+        }
+    },
+#     {
+#         '$group':{
+#             '_id': {
+#                 'user_id':'$_id.user_id',
+#                 'screen_name': '$_id.screen_name'
+#             },
+#             'count': {'$sum': 1},
+#             'avg_rt': {'$avg': '$retweet_count'},
+#             'avg_fv': {'$avg': '$favorite_count'},
+#             'total_rt': {'$sum': '$retweet_count'},
+#             'total_fv': {'$sum': '$favorite_count'},
+#         }
+#     }
+    ], allowDiskUse=True)
+
+ids = []
+for i in results: 
+    if i['_id']['tweet_id'] in ids:
+        print('DUPLICATE', i)
+    print(i)
+    ids.append(i['_id']['tweet_id'])
+print(len(ids), len(set(ids)))
 # -
+
+# I figured out the problem, it is that the data was collected in multiple times, and several users were duplicated with their tweets, however their tweets had different number of favorites and retweets now, and since I was using retweet and favorite counts as ids, duplicates of tweets weren't duplicates anymore.
+#
+# So now instead of taking retweet and favorite count as ids, I will aggregate the max of their duplicates in order to get the latest information.
 
 # ## Analyzing users' friends and followers distributions
 
