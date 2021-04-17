@@ -246,6 +246,28 @@ def collect_tweets_count(user_id):
 # users_df.to_csv('users.csv', index=False)
 # -
 
+# ## Analyzing newly added features before dropping outliers
+
+cols = ['statuses_count', 'favourites_count', 'followers_count', 'friends_count']
+new_cols = users_df.iloc[:, -5:].columns.tolist()
+
+users_df[new_cols].hist(figsize=(12, 8), bins=50);
+
+users_df[new_cols].plot(kind='box', subplots=True, figsize=(16, 5));
+
+# We can see that the presence of outliers won't enable us to see to any meaningful chart of the last 4 features.
+
+# +
+# heatmap
+
+sns.heatmap(users_df[new_cols].corr(), annot=True);
+# -
+
+# There are obvious relationships between average features derived from total ones, but there are still relationships between the average and the average favorites of a user.
+
+plt.figure(figsize=(10, 6))
+sns.heatmap(users_df[cols+new_cols].corr(), annot=True);
+
 # ## Analyzing users' friends and followers distributions
 
 # +
@@ -284,10 +306,7 @@ plt.title('Log Transformation of Followers Count');
 # Let's take a look at a pair plot between all features to find out if there are any pecularities.
 
 # +
-cols = ['statuses_count', 'favourites_count', 'tweets_count', 'total_retweets', 'total_favorites',
-        'avg_retweets', 'avg_favorites', 'followers_count', 'friends_count']
-
-sns.pairplot(data=users_df, vars=cols, plot_kws={'alpha': 0.2});
+# sns.pairplot(data=users_df, vars=cols, plot_kws={'alpha': 0.2});
 # -
 
 # The outliers won't enable any real insight to be taken from the distribution of users, so let's take a look at a clean version of the data.
@@ -360,7 +379,6 @@ print('The number of outliers the fit this criteria is {0}'.format(users_df[~out
 users_df[~outliers_mask].sort_values('friends_count', ascending=False).tail(50)
 
 # the distribution of their numeric features
-cols = ['statuses_count', 'favourites_count', 'followers_count', 'friends_count']
 axes = users_df[~outliers_mask][cols].hist(bins=10, figsize=(15, 10))
 users_df[~outliers_mask][cols].describe()
 
@@ -430,6 +448,12 @@ users_df[outliers_mask].plot(kind='scatter',
 #
 #     There is some sort of linear relationship going on below 25000 followers. I guess that these are users that get followers by following other users in return of these users following them back. That's why these have an apparent linear relationship between friends and followers count. On the other hand we can see the other distribution of users who don't show a linear relationship between these two features, and these may be the users who have amassed a following based on their activity, and not relying on quid pro quo agreement with other users to follow them and expect a follow back.
 
+users_df[outliers_mask][new_cols].hist(figsize=(12, 8), bins=50);
+
+users_df[outliers_mask][new_cols].plot(kind='box', subplots=True, figsize=(16, 5));
+
+# It is obvious now that it's not a problem of outliers for visualization with this data, it's that the data is heavily skewed. Therefore I think that the only metric for deciding whether to remove outliers or not is to examine the results of clustering the data.
+
 # +
 import pytz
 import datetime
@@ -444,7 +468,7 @@ users_df['years'] = pd.to_datetime(users_df.created_at).apply(lambda x: relative
 users_df['months'] = users_df.delta.apply(lambda x: x.years * 12 + x.months)
 users_df['days'] = users_df.delta.apply(lambda x: x.years * 365 + x.days)
 
-cols = ['friends_count', 'followers_count', 'statuses_count', 'favourites_count', 'months']
+cols = cols + new_cols
 
 
 # -
@@ -458,7 +482,9 @@ def scatter_cluster(tmp, size_col='statuses_count', scale=1):
     plt.colorbar()
 
 
-scatter_cluster(users_df[outliers_mask], 'statuses_count', scale=1000)
+scatter_cluster(users_df[outliers_mask], 'total_favorites', scale=1000)
+
+# Based on this plot and changing the size col parameters with the new engineered features, I believe that the algorithm will be able to capture new and better information.
 
 # ## Clustering users based on friends and followers count
 #
