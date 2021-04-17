@@ -73,19 +73,20 @@ users_df = pd.read_csv('users.csv', lineterminator='\n')
 users_df.head()
 
 # +
-# # aggregate users tweets count, average retweet and favorite count, and total retweet and favorite count
-# results = db.tweets.aggregate([
-#     {
-#         '$group':{
-#             '_id': {
-#                 'user_id': '$user.id',
-#                 'tweet_id': '$id',
-#             },
-#             'count': {'$sum': 1},
-#             'retweet_count': {'$max': '$retweet_count'},
-#             'favorite_count': {'$max': '$favorite_count'}
-#         }
-#     },
+# aggregate users tweets count, average retweet and favorite count, and total retweet and favorite count
+results = db.tweets.aggregate([
+    {
+        '$group':{
+            '_id': {
+                'user_id': '$user.id',
+                'tweet_id': '$id',
+                'created_at': '$created_at'
+            },
+            'count': {'$sum': 1},''
+            'retweet_count': {'$max': '$retweet_count'},
+            'favorite_count': {'$max': '$favorite_count'},
+        }
+    },
 #     {
 #         '$group':{
 #             '_id': {
@@ -96,18 +97,20 @@ users_df.head()
 #             'avg_fv': {'$avg': '$favorite_count'},
 #             'total_rt': {'$sum': '$retweet_count'},
 #             'total_fv': {'$sum': '$favorite_count'},
+#             'min_tweet_time': {'$min': '$_id.created_at'},
+#             'max_tweet_time': {'$max': '$_id.created_at'}
 #         }
 #     }
-#     ], allowDiskUse=True
-# )
+    ], allowDiskUse=True
+)
 
-# # test case
-# count = 0
-# for i in results:
-#     print(i)
-#     count += 1
-#     if count > 10: break
-# print('total count', count)
+# test case
+count = 0
+for i in results:
+    print(i)
+    count += 1
+    if count > 10: break
+print('total count', count)
 
 # +
 # # add tweets_count, avg_retweets, avg_favorites, total_retweets, total_favorites
@@ -363,7 +366,6 @@ users_df[~outliers_mask].sort_values('followers_count', ascending=False)
 # It is obvious that these users are either celeberties, official and non-official accounts for celeberities, entities, new outlets and twitter pages of sorts. So They aren't regular twitter users or influencers.
 
 # the distribution of their numeric features
-cols = ['statuses_count', 'favourites_count', 'followers_count', 'friends_count']
 axes = users_df[~outliers_mask][cols].hist(bins=10, figsize=(15, 10))
 users_df[~outliers_mask][cols].describe()
 
@@ -468,7 +470,7 @@ users_df['years'] = pd.to_datetime(users_df.created_at).apply(lambda x: relative
 users_df['months'] = users_df.delta.apply(lambda x: x.years * 12 + x.months)
 users_df['days'] = users_df.delta.apply(lambda x: x.years * 365 + x.days)
 
-cols = cols + new_cols
+cols = cols + new_cols + ['months']
 
 
 # -
@@ -482,9 +484,95 @@ def scatter_cluster(tmp, size_col='statuses_count', scale=1):
     plt.colorbar()
 
 
-scatter_cluster(users_df[outliers_mask], 'total_favorites', scale=1000)
+scatter_cluster(users_df[outliers_mask], 'avg_favorites', scale=10)
 
 # Based on this plot and changing the size col parameters with the new engineered features, I believe that the algorithm will be able to capture new and better information.
+
+fig, axes = plt.subplots(1, 2, figsize=(15, 6))
+sns.scatterplot(data=users_df[outliers_mask], x='total_retweets', y='total_favorites', ax=axes[0]);
+sns.scatterplot(data=users_df[outliers_mask], x='avg_retweets', y='avg_favorites', ax=axes[1]);
+
+# We can see the positive correlation between the total and average number of retweets and favorites between users.
+
+sns.histplot(data=users_df[outliers_mask].query('total_retweets > 0'), x='total_retweets', log_scale=True);
+
+sns.histplot(data=users_df[outliers_mask].query('total_favorites > 0'), x='total_favorites', log_scale=True);
+
+
+def plot_hist(feature, mask_outliers=True, log_scale=False):
+    if log_scale:
+        mask = users_df[feature] > 0
+        if mask_outliers:
+            sns.histplot(data=users_df[outliers_mask][mask], x=feature, log_scale=True)
+        else:
+            sns.histplot(data=users_df[mask], x=feature, log_scale=True)
+    else:
+        if mask_outliers:
+            sns.histplot(data=users_df[outliers_mask], x=feature)
+        else:
+            sns.histplot(data=users_df, x=feature)
+
+
+plot_hist('avg_retweets', mask_outliers=False, log_scale=True);
+
+plot_hist('avg_retweets', mask_outliers=True, log_scale=True);
+
+plot_hist('avg_favorites', mask_outliers=False, log_scale=True);
+
+plot_hist('avg_favorites', mask_outliers=True, log_scale=True);
+
+# The increased bin size near 1 average favorites is peculiar, why does removing outliers decrease this bin size?
+
+users_df[~outliers_mask].avg_favorites.hist(bins=50);
+
+# I guess that these outliers are people with huge number of friends, let's check this out.
+
+users_df[~outliers_mask].plot(kind='scatter', x='friends_count', y='avg_favorites');
+plt.ylim([0, 100]);
+
+# That turned out to be true, and most this bin is mostly inhabited by outliers with huge friends count.
+
+plt.figure(figsize=(10, 6))
+plt.scatter(x=users_df[outliers_mask]['avg_retweets'],
+            y=users_df[outliers_mask]['avg_favorites'],
+            alpha=0.2,
+            c=users_df[outliers_mask]['followers_count'],
+            s=users_df[outliers_mask]['months']);
+plt.colorbar()
+plt.xlim([0, 1])
+plt.ylim([0, 10]);
+
+# Zooming in on the data shows that new users and are one the are centered around the origin.
+
+plt.figure(figsize=(10, 6))
+plt.scatter(x=users_df[outliers_mask]['total_retweets'],
+            y=users_df[outliers_mask]['total_favorites'],
+            alpha=0.2,
+            c=users_df[outliers_mask]['followers_count'],
+            s=users_df[outliers_mask]['months']);
+plt.colorbar();
+
+plt.figure(figsize=(10, 6))
+plt.scatter(x=users_df[outliers_mask]['statuses_count'],
+            y=users_df[outliers_mask]['avg_retweets']);
+
+# No relationship is present between the numbers of statuses a user has and the average number of retweets he has.
+
+plt.figure(figsize=(10, 6))
+plt.scatter(x=users_df[outliers_mask]['statuses_count'],
+            y=users_df[outliers_mask]['avg_favorites']);
+
+plt.figure(figsize=(10, 6))
+plt.scatter(x=users_df[outliers_mask]['tweets_count'],
+            y=users_df[outliers_mask]['avg_favorites']);
+
+scatter_cluster(users_df[outliers_mask], 'tweets_count', scale=1)
+
+# It seems that since the latest 200 tweets are collected over any time, whether recent or distant, therefore I need to engineer a feature with the average number of tweets per month for example.
+
+cols
+
+# I'll now make up different categories based on followers to analyze the data.
 
 # ## Clustering users based on friends and followers count
 #
@@ -519,11 +607,11 @@ def load_model(filename, save_dir='models'):
 # +
 from sklearn.mixture import GaussianMixture
 
-# n = 10
-# gm = GaussianMixture(n_components=n, n_init=20, random_state=seed)
-# gm.fit(users_df[outliers_mask][cols])
+n = 10
+gm = GaussianMixture(n_components=n, n_init=20, random_state=seed)
+gm.fit(users_df[outliers_mask][cols])
 
-gm = load_model('gm_95th_2021-04-08 13:20:35.718419.pkl')
+# gm = load_model('gm_95th_2021-04-08 13:20:35.718419.pkl')
 
 y_pred_4 = gm.predict(users_df.loc[outliers_mask, cols])
 
@@ -544,7 +632,7 @@ for label, color in zip(set(y_pred_4), 'bgrcmy'):
     plt.scatter(x=users_df[outliers_mask][y_pred_4 == label]['friends_count'],
                 y=users_df[outliers_mask][y_pred_4 == label]['followers_count'],
                 c=color,
-                s=users_df[outliers_mask][y_pred_4 == label]['statuses_count']/100,
+                s=users_df[outliers_mask][y_pred_4 == label]['avg_retweets']/1,
                 alpha=0.5,
                 label=label);
 
@@ -559,8 +647,6 @@ gm_2 = users_df[outliers_mask][y_pred_4 == 2]
 gm_3 = users_df[outliers_mask][y_pred_4 == 3]
 gm_4 = users_df[outliers_mask][y_pred_4 == 4]
 gm_5 = users_df[outliers_mask][y_pred_4 == 5]
-
-cols = cols + ['tweets_count']
 
 scatter_cluster(gm_0, scale=100)
 gm_0[cols].describe()
@@ -675,17 +761,19 @@ sns.histplot(data=gm_0, x='tweets_count');
 
 sns.scatterplot(data=gm_0, x='tweets_count', y='followers_count');
 
-scatter_cluster(gm_1, scale=100)
+scatter_cluster(gm_1, 'avg_retweets', scale=1)
 gm_1[cols].describe()
+
+gm_1.head(50)
 
 sns.pairplot(data=gm_1, vars=cols, height=1.5, plot_kws={'alpha': 0.2});
 
 # Users who aren't really active, but they are more active than the first cluster.
 
-scatter_cluster(gm_2, scale=100)
+scatter_cluster(gm_2, 'avg_retweets', scale=1)
 gm_2[cols].describe()
 
-gm_2.head(50)
+gm_2
 
 sns.pairplot(data=gm_2, vars=cols, height=1.5, plot_kws={'alpha': 0.2});
 
@@ -698,16 +786,16 @@ sns.histplot(data=users_df, x='tweets_count');
 
 # Influencers
 
-scatter_cluster(gm_3, scale=100)
+scatter_cluster(gm_3, 'avg_favorites', scale=1)
 gm_3[cols].describe()
 
-gm_3
+gm_3[['screen_name']+cols].head(50)
 
 sns.pairplot(gm_3, vars=cols, height=1.5, plot_kws={'alpha': 0.2});
 
 # Mostly official and non-official pages that represents entities or personalities.
 
-scatter_cluster(gm_4, scale=100)
+scatter_cluster(gm_4, 'avg_retweets', scale=1)
 gm_4[cols].describe()
 
 gm_4.head(50).sort_values('statuses_count')[['name']+cols]
@@ -716,7 +804,7 @@ sns.pairplot(gm_4, vars=cols, height=1.5, plot_kws={'alpha': 0.2});
 
 # This cluster might have some high followers, but it shouldn't fool you as most of them got it using follow backs. You can also see it from the low ratio between favourites and statuses count. You can also see some users with really low statuses count, but their followers is high.
 
-scatter_cluster(gm_5, scale=100)
+scatter_cluster(gm_5, 'avg_retweets', scale=1)
 gm_5[cols].describe()
 
 gm_5.sort_values('followers_count').head(50)
