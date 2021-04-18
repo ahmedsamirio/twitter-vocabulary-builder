@@ -192,7 +192,7 @@ def collect_tweets(twitter_api, user, tweets_per_user):
     kw = {
         'count': 200,
         'trim_user': 'true',
-        'include_rts': 'false',
+        # 'include_rts': 'false',
         'since_id': 1 ,
         'user_id': user['id']
     }
@@ -243,10 +243,13 @@ def collect_friends(twitter_api, user, friends_per_user):
 
         if len(friends) >= friends_per_user or response is None:
             break
-    if friends:
-        friends = [user_obj for user_obj in friends if not user_obj['verified']]
+
+    # # exclude verified friends
+    # if friends:
+    #     friends = [user_obj for user_obj in friends if not user_obj['verified']]
 
     return friends
+
 
 def collect_followers(twitter_api, user, friends_per_user):
     """Return a list of user's follwoers."""
@@ -264,8 +267,9 @@ def collect_followers(twitter_api, user, friends_per_user):
         if len(followers) >= friends_per_user or response is None:
             break
 
-    if followers:
-        followers = [user_obj for user_obj in followers if not user_obj['verified']]
+    # # exclude verified users
+    # if followers:
+    #     followers = [user_obj for user_obj in followers if not user_obj['verified']]
 
     return followers
 

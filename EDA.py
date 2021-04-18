@@ -13,6 +13,8 @@
 #     name: python3
 # ---
 
+# # Import libraries
+
 # +
 import pymongo
 from pprint import pprint
@@ -23,84 +25,225 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import seaborn as sns
 
+import pytz
+import datetime
+from dateutil.relativedelta import relativedelta
+
 seed = 44
 np.random.seed(seed)
+
+first_pass = False
 # -
+
+# # Connect to MongoDB client
 
 client = pymongo.MongoClient('localhost', 27017)
 client.list_database_names()
 
+# # Select database and view collections
+
 db = client['twitter_stream']
 db.list_collection_names()
 
-# +
-len(db.tweets.distinct('user.id')) == len(db.users.distinct('id'))
+db.command("dbstats")
 
-# this means that all the tweets in the database are related only to users also in the database
-# -
+# # Explore the structure of documents in each collection
+# ## Query one tweet
 
 db.tweets.find_one()
 
-# querying tweets for certain user
-count = 0
-limit = 10
-for tweet in db.tweets.find({'user.screen_name': 'MSha3bo'}):
-    if count > limit:
-        break
-    pprint(tweet)
-    count += 1
+# +
+# # querying tweets for certain user
+# count = 0
+# limit = 10
+# for tweet in db.tweets.find({'user.screen_name': 'MSha3bo'}):
+#     if count > limit:
+#         break
+#     pprint(tweet)
+#     count += 1
+# -
 
-# querying one user
+# ## Query one user
+
 db.users.find_one()
 
-# +
-# querying all screen_names
-screen_names = []
-for user in db.users.find():
-    screen_names.append(user['screen_name'])
-    
-screen_names = set(screen_names)
-print('Total number of users:', len(screen_names))
+# ## Count of users in the users and tweets collection
+
+print('Total number of users in users collection:', len(db.users.distinct('id')))
+print('Total number of users in tweets collection:', len(db.tweets.distinct('user.id')))
+
+# # Converting users collection into Pandas dataframe
 
 # +
-# converting users collection into pandas dataframe
 import pandas as pd
 
-# users_df = pd.DataFrame(list(db.users.find()))
-# users_df.head()
+if first_pass:
+    users_df = pd.DataFrame(list(db.users.find()))
+else:
+    users_df = pd.read_csv('users.csv', lineterminator='\n')
 
-users_df = pd.read_csv('users.csv', lineterminator='\n')
 users_df.head()
+# -
+
+# A user object contains a lot of valuable information about a user, most importantly it shows their:
+#     1. followers count
+#     2. friends count
+#     3. statuses count
+#     4. favourites count
+#     5. creation date
+#     
+# Of course there are alot of more features that could be analyzed like names, screen names, descriptions, location, etc..
+#
+# But for this analysis I'll focus on these 5 features and engineer new features based on the tweets collected for each of these users.
+
+users_df.sample(10)
+
+# ## Extracting the number of months since account creation
 
 # +
-# aggregate users tweets count, average retweet and favorite count, and total retweet and favorite count
+utc=pytz.UTC
+
+now = utc.localize(datetime.datetime.now())
+
+users_df['delta'] = pd.to_datetime(users_df.created_at).apply(lambda x: relativedelta(now, x))
+users_df['years'] = pd.to_datetime(users_df.created_at).apply(lambda x: relativedelta(now, x).years)
+users_df['months'] = users_df.delta.apply(lambda x: x.years * 12 + x.months)
+users_df['days'] = users_df.delta.apply(lambda x: x.years * 365 + x.days)
+# -
+
+# ## Engineering new aggregative features based on tweets collection
+
+
+
+# ## Taking a broad look at the features
+
+num_feats = ['friends_count', 'followers_count', 'statuses_count', 'favourites_count', 'months']
+sns.pairplot(data=users_df, vars=num_feats, plot_kws={'alpha': 0.5, 'bins': 100});
+
+# This plot shows that in each these features, except months since creation, there are outliers that make the range of the plots larger than the actual spread of the data. Also the histograms of the 4 features are barely visible also due to the presence of outliers.
+
+# ## Analyzing users' friends and followers distributions
+
+# +
+fig, axes = plt.subplots(1, 2, figsize=(15, 4))
+
+users_df.friends_count.plot(kind='hist', ax=axes[0], bins=100, title='Friends Count Distribution')
+users_df.followers_count.plot(kind='hist', ax=axes[1], bins=100, title='Followers Count Distribution');
+# -
+
+# From the get go we can see that there alot of outliers in both the friends and followers count features, and the distributions look to be right skewed.
+
+# +
+fig, axes = plt.subplots(1, 2, figsize=(15, 6))
+
+users_df.friends_count.plot(kind='box', ax=axes[0], title='Friends Count Boxplot')
+users_df.followers_count.plot(kind='box', ax=axes[1], title='Followers Count Bocplot');
+# -
+
+# These two distributions look log normal to me, so let's look at their log transformation.
+
+# +
+plt.figure(figsize=(14, 5))
+
+plt.subplot(1, 2, 1)
+sns.histplot(data=users_df.query('friends_count > 0'), x='friends_count', log_scale=True);
+plt.title('Log Transformation of Friends Count')
+
+plt.subplot(1, 2, 2)
+sns.histplot(data=users_df.query('followers_count > 0'), x='followers_count', log_scale=True)
+plt.title('Log Transformation of Followers Count');
+
+# -
+
+users_df[['friends_count', 'followers_count']].describe()
+
+# The two distributions are log normal, and if we look at the statistical summary of the two features, we find that 50th qunatile in friends is 433, which means that half of the users in this data have friends less than or equal to 433, while for followers it is 658.
+
+print('Number of users with 0 friends:', users_df.query('friends_count == 0').shape[0])
+print('Number of users with 0 followers:', users_df.query('followers_count == 0').shape[0])
+print('\nMaximum of number of friends:', users_df.friends_count.max())
+print('Maximum of number of followers:', users_df.followers_count.max())
+
+# Why would someone have no friends? or followers? Are these new users?
+# Also having a lot of followers is not surprising, even they are 20 million, but why would someone have 79k friends?
+
+# ### Analyzing users with no friends
+
+sns.pairplot(data=users_df.query('friends_count == 0'), vars=num_feats, height=1.5);
+
+# I don't think there is anything interesting in these plots except one fact, and that is how their followers count is distributed.
+
+sns.histplot(data=users_df.query('friends_count == 0'), x='followers_count', log_scale=True);
+
+users_df.query('friends_count == 0')[num_feats].describe()
+
+# Based on the plots and statistical description of these users, it's apparent the majority of them aren't inactive or new accounts. 75% of them have been present on twitter for more than two years, also 75% of them have more than 1988 followers and 142 statuses.
+#
+# But we can see that 25% of them have no favorites, so these might include news or business accounts.
+
+print('Number of users without friends or favorites:', 
+       users_df.query('friends_count == 0 and favourites_count == 0').shape[0])
+print('Number of users without friends that haven\'t completed on month since creation:', 
+       users_df.query('friends_count == 0 and months == 0').shape[0])
+
+sns.histplot(users_df.query('friends_count == 0 and favourites_count == 0'), x='followers_count', log_scale=True);
+
+sns.histplot(users_df.query('friends_count == 0 and favourites_count == 0'), x='statuses_count', log_scale=True);
+
+sns.scatterplot(data=users_df.query('friends_count == 0\
+                                     and favourites_count == 0'), x='months', y='statuses_count');
+
+tmp = users_df.query('friends_count == 0 and favourites_count == 0')
+plt.scatter(x=tmp['months'],
+            y=tmp['statuses_count'],
+            c=tmp['followers_count'])
+
+# We can see that there is no direct relationship between these features, so let's now take a look at the accounts to figure out exactly what they are.
+
+users_df.query('friends_count == 0').head(50)
+
+# ## Aggregate features based on users tweets
+
+# +
+# Aggregate total number of original tweets collected, total retweets, total favorites, average retweets, average 
+# favorties, dates of earliest and latest original tweets collected
 results = db.tweets.aggregate([
+    {
+        '$match':{
+            'in_reply_to_status_id': None
+        }
+    },
     {
         '$group':{
             '_id': {
                 'user_id': '$user.id',
                 'tweet_id': '$id',
-                'created_at': '$created_at'
+                'created_at': {
+                    '$dateFromString': {
+                        'dateString': '$created_at'
+                    },
+                },
+                'in_reply_to_status_id': '$in_reply_to_status_id'
             },
-            'count': {'$sum': 1},''
+            'count': {'$sum': 1},
             'retweet_count': {'$max': '$retweet_count'},
             'favorite_count': {'$max': '$favorite_count'},
         }
     },
-#     {
-#         '$group':{
-#             '_id': {
-#                 'user_id':'$_id.user_id',
-#             },
-#             'count': {'$sum': 1},
-#             'avg_rt': {'$avg': '$retweet_count'},
-#             'avg_fv': {'$avg': '$favorite_count'},
-#             'total_rt': {'$sum': '$retweet_count'},
-#             'total_fv': {'$sum': '$favorite_count'},
-#             'min_tweet_time': {'$min': '$_id.created_at'},
-#             'max_tweet_time': {'$max': '$_id.created_at'}
-#         }
-#     }
+    {
+        '$group':{
+            '_id': {
+                'user_id':'$_id.user_id',
+            },
+            'count': {'$sum': 1},
+            'avg_rt': {'$avg': '$retweet_count'},
+            'avg_fv': {'$avg': '$favorite_count'},
+            'total_rt': {'$sum': '$retweet_count'},
+            'total_fv': {'$sum': '$favorite_count'},
+            'min_tweet_time': {'$min': '$_id.created_at'},
+            'max_tweet_time': {'$max': '$_id.created_at'}
+        }
+    }
     ], allowDiskUse=True
 )
 
@@ -111,6 +254,62 @@ for i in results:
     count += 1
     if count > 10: break
 print('total count', count)
+
+# +
+# Aggregate total number of replies collected, total retweets, total favorites, average retweets, average 
+# favorties, dates of earliest and latest replies collected
+results = db.tweets.aggregate([
+    {
+        '$match':{
+            'in_reply_to_status_id': {
+                '$ne': None
+            },
+        }
+    },
+    {
+        '$group':{
+            '_id': {
+                'user_id': '$user.id',
+                'tweet_id': '$id',
+                'created_at': {
+                    '$dateFromString': {
+                        'dateString': '$created_at'
+                    },
+                },
+                'in_reply_to_status_id': '$in_reply_to_status_id'
+            },
+            'count': {'$sum': 1},
+            'retweet_count': {'$max': '$retweet_count'},
+            'favorite_count': {'$max': '$favorite_count'},
+        }
+    },
+    {
+        '$group':{
+            '_id': {
+                'user_id':'$_id.user_id',
+            },
+            'count': {'$sum': 1},
+            'avg_rt': {'$avg': '$retweet_count'},
+            'avg_fv': {'$avg': '$favorite_count'},
+            'total_rt': {'$sum': '$retweet_count'},
+            'total_fv': {'$sum': '$favorite_count'},
+            'min_tweet_time': {'$min': '$_id.created_at'},
+            'max_tweet_time': {'$max': '$_id.created_at'}
+        }
+    }
+    ], allowDiskUse=True
+)
+
+# test case
+count = 0
+for i in results:
+    print(i)
+    count += 1
+    if count > 10: break
+print('total count', count)
+# -
+
+
 
 # +
 # # add tweets_count, avg_retweets, avg_favorites, total_retweets, total_favorites
@@ -271,40 +470,9 @@ sns.heatmap(users_df[new_cols].corr(), annot=True);
 plt.figure(figsize=(10, 6))
 sns.heatmap(users_df[cols+new_cols].corr(), annot=True);
 
-# ## Analyzing users' friends and followers distributions
-
-# +
-fig, axes = plt.subplots(1, 2, figsize=(15, 4))
-
-users_df.friends_count.plot(kind='hist', ax=axes[0], bins=100, title='Friends Count Distribution')
-users_df.followers_count.plot(kind='hist', ax=axes[1], bins=100, title='Followers Count Distribution');
-# -
-
 # The two histograms have outliers (of course), so let's boxplot them to check them out.
 
-# +
-fig, axes = plt.subplots(1, 2, figsize=(15, 6))
-
-users_df.friends_count.plot(kind='box', ax=axes[0], title='Friends Count Boxplot')
-users_df.followers_count.plot(kind='box', ax=axes[1], title='Followers Count Bocplot');
-# -
-
 users_df.loc[:, ['friends_count', 'followers_count']].describe()
-
-# These two distributions look log normal to me, so let's look at their log transformation.
-
-# +
-plt.figure(figsize=(14, 5))
-
-plt.subplot(1, 2, 1)
-sns.histplot(data=users_df.query('friends_count > 0'), x='friends_count', log_scale=True);
-plt.title('Log Transformation of Friends Count')
-
-plt.subplot(1, 2, 2)
-sns.histplot(data=users_df.query('followers_count > 0'), x='followers_count', log_scale=True)
-plt.title('Log Transformation of Followers Count');
-
-# -
 
 # Let's take a look at a pair plot between all features to find out if there are any pecularities.
 
