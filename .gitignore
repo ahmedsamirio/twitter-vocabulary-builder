@@ -1,2 +1,3 @@
 # for Jupytext ignoring ipynb files
 *.ipynb
+api_config.py
