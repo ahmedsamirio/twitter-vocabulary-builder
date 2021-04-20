@@ -3,6 +3,7 @@ from http.client import BadStatusLine
 from urllib.error import URLError
 
 from db_manipulation import *
+from api_config import *
 from config import collected_users_list, tweets_count, start_time, limit_depth
 
 import sys
@@ -15,10 +16,10 @@ import pymongo
 
 def oauth_login():
     """Returns a twitter api object using OAuth login."""
-    CONSUMER_KEY = 'agaAIqBTfKThsSHYArhX8Rc42'
-    CONSUMER_SECRET = 'vZMmSIWaXhuGZFRbLHg6vb3Gm91SIAQduOwLZudbDaD2Y6rhLB'
-    OAUTH_TOKEN = '1248519309887930372-9zztBJDAfiDLjXOXgpaELnDly0Gbkz'
-    OAUTH_TOKEN_SECRET = 'Qu35S7qaHLvHgE0EQbxe6RTykcGCm8xj7t4WRvVqIGzwF'
+    CONSUMER_KEY = CONSUMER_KEY
+    CONSUMER_SECRET = CONSUMER_SECRET
+    OAUTH_TOKEN = OAUTH_TOKEN
+    OAUTH_TOKEN_SECRET = OAUTH_TOKEN_SECRET
 
     auth = twitter.oauth.OAuth(OAUTH_TOKEN, OAUTH_TOKEN_SECRET,
                                CONSUMER_KEY, CONSUMER_SECRET)
