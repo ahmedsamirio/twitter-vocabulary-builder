@@ -142,15 +142,19 @@ def stream_from_users(twitter_api, user, tweets_per_user, friends_per_user, mong
         try:
             tweets = collect_tweets(twitter_api, user, tweets_per_user)
         except ValueError:
+            tweets = []
             print("Encountered JSONDecodeError again", file=sys.stderr)
+
+    except ConnectionResetError as exc:
+        tweets = []
+        print('Connection Error', str(exc))
             
     if tweets:
         _ = save_to_mongo(tweets, mongo_db, "tweets")
         _ = save_to_mongo(user, mongo_db, "users")
-
-
-    tweets_count += len(tweets)
-    collected_users_list.append(user['id'])
+        
+        tweets_count += len(tweets)
+        collected_users_list.append(user['id'])
 
     if len(collected_users_list) % 10 == 0:
         print("Collected users: %d user\nCollected tweets: %d tweet\nDuration: %d seconds" %
@@ -168,6 +172,8 @@ def stream_from_users(twitter_api, user, tweets_per_user, friends_per_user, mong
             except ValueError:
                 print("Encountered JSONDecodeError", file=sys.stderr)
                 friends, followers = [], []
+        except ConnectionResetError as exc:
+            print('Connection Error', str(exc))
 
         # in case no friends or followers were returned by the collecting functions
         if friends and followers:

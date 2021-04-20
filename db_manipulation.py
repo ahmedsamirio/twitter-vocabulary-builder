@@ -29,7 +29,7 @@ def create_db(db_name):
 
 def create_mongo_db():
     myclient = pymongo.MongoClient("mongodb://localhost:27017/")
-    db = myclient["twitter_stream_2.0"]
+    db = myclient["twitter_stream_2"]
     users = db['users']
     tweets = db['tweets']
     return db

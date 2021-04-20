@@ -1,6 +1,6 @@
 import time
 
-mongo_db = 'twitter_stream'
+mongo_db = 'twitter_stream_2'
 collected_users_list = []
 tweets_count = 0
 tweets_per_user = 200

@@ -42,7 +42,7 @@ client.list_database_names()
 
 # # Select database and view collections
 
-db = client['twitter_stream']
+db = client['twitter_stream_2']
 db.list_collection_names()
 
 db.command("dbstats")
@@ -52,20 +52,22 @@ db.command("dbstats")
 
 db.tweets.find_one()
 
-# +
-# # querying tweets for certain user
-# count = 0
-# limit = 10
-# for tweet in db.tweets.find({'user.screen_name': 'MSha3bo'}):
-#     if count > limit:
-#         break
-#     pprint(tweet)
-#     count += 1
-# -
+# querying tweets for certain user
+count = 0
+limit = 10
+for tweet in db.tweets.find({'user.id': 275644099}):
+    if count > limit:
+        break
+    pprint(tweet)
+    count += 1
 
 # ## Query one user
 
 db.users.find_one()
+
+# In order to aggregate features based on tweets types, we need to first aggregate based over all original tweets (and maybe replies), and then aggregate the percentage of original tweets, replies, and retweets from the total number of tweets collected for every user.
+#
+# We can also aggregate the frequency of original tweets and retweets by calculating the time between the first and last tweet collected.
 
 # ## Count of users in the users and tweets collection
 
@@ -100,20 +102,480 @@ users_df.sample(10)
 
 # ## Extracting the number of months since account creation
 
-# +
-utc=pytz.UTC
+if first_pass:
+    utc=pytz.UTC
 
-now = utc.localize(datetime.datetime.now())
+    now = utc.localize(datetime.datetime.now())
 
-users_df['delta'] = pd.to_datetime(users_df.created_at).apply(lambda x: relativedelta(now, x))
-users_df['years'] = pd.to_datetime(users_df.created_at).apply(lambda x: relativedelta(now, x).years)
-users_df['months'] = users_df.delta.apply(lambda x: x.years * 12 + x.months)
-users_df['days'] = users_df.delta.apply(lambda x: x.years * 365 + x.days)
-# -
+    users_df['delta'] = pd.to_datetime(users_df.created_at).apply(lambda x: relativedelta(now, x))
+    users_df['years'] = pd.to_datetime(users_df.created_at).apply(lambda x: relativedelta(now, x).years)
+    users_df['months'] = users_df.delta.apply(lambda x: x.years * 12 + x.months)
+    users_df['days'] = users_df.delta.apply(lambda x: x.years * 365 + x.days)
 
 # ## Engineering new aggregative features based on tweets collection
 
+# ### Aggregating features for all tweets per user (including retweets and replies)
 
+agg_all = db.tweets.aggregate([
+    {
+        '$group':{
+            '_id': {
+                'user_id': '$user.id',
+                'tweet_id': '$id',
+                'created_at': {
+                    '$dateFromString': {
+                        'dateString': '$created_at'
+                    },
+                },
+            },
+            'count': {'$sum': 1},
+        }
+    },
+    {
+        '$group':{
+            '_id': {
+                'user_id':'$_id.user_id',
+            },
+            'count': {'$sum': 1},
+            'min_tweet_time': {'$min': '$_id.created_at'},
+            'max_tweet_time': {'$max': '$_id.created_at'}
+        }
+    },
+    {
+        '$sort': {
+            '_id.user_id': 1
+        }
+    }
+    ], allowDiskUse=True
+)
+
+# ### Aggregating features for replies
+
+agg_rp = db.tweets.aggregate([
+    {
+        '$match':{
+            'retweeted_status': None,
+            'in_reply_to_status_id': {
+                '$ne': None
+            }
+        }
+    },
+    {
+        '$group':{
+            '_id': {
+                'user_id': '$user.id',
+                'tweet_id': '$id',
+                'created_at': {
+                    '$dateFromString': {
+                        'dateString': '$created_at'
+                    },
+                },
+                'in_reply_to_status_id': '$in_reply_to_status_id'
+            },
+            'count': {'$sum': 1},
+            'retweet_count': {'$max': '$retweet_count'},
+            'favorite_count': {'$max': '$favorite_count'},
+        }
+    },
+    {
+        '$group':{
+            '_id': {
+                'user_id':'$_id.user_id',
+            },
+            'count': {'$sum': 1},
+            'avg_rt': {'$avg': '$retweet_count'},
+            'avg_fv': {'$avg': '$favorite_count'},
+            'total_rt': {'$sum': '$retweet_count'},
+            'total_fv': {'$sum': '$favorite_count'},
+            'min_tweet_time': {'$min': '$_id.created_at'},
+            'max_tweet_time': {'$max': '$_id.created_at'}
+        }
+    },
+    {
+        '$sort': {
+            '_id.user_id': 1
+        }
+    }
+    ], allowDiskUse=True
+)
+
+# ### Aggregating features for original tweets per user (excluding replies)
+
+agg_org = db.tweets.aggregate([
+    {
+        '$match':{
+            'retweeted_status': None,
+            'in_reply_to_status_id': None
+        }
+    },
+    {
+        '$group':{
+            '_id': {
+                'user_id': '$user.id',
+                'tweet_id': '$id',
+                'created_at': {
+                    '$dateFromString': {
+                        'dateString': '$created_at'
+                    },
+                },
+            },
+            'count': {'$sum': 1},
+            'retweet_count': {'$max': '$retweet_count'},
+            'favorite_count': {'$max': '$favorite_count'},
+        }
+    },
+    {
+        '$group':{
+            '_id': {
+                'user_id':'$_id.user_id',
+            },
+            'count': {'$sum': 1},
+            'avg_rt': {'$avg': '$retweet_count'},
+            'avg_fv': {'$avg': '$favorite_count'},
+            'total_rt': {'$sum': '$retweet_count'},
+            'total_fv': {'$sum': '$favorite_count'},
+            'min_tweet_time': {'$min': '$_id.created_at'},
+            'max_tweet_time': {'$max': '$_id.created_at'}
+        }
+    },
+    {
+        '$sort': {
+            '_id.user_id': 1
+        }
+    }
+    ], allowDiskUse=True
+)
+
+# ### Aggregating features for retweets per user
+
+agg_rt = db.tweets.aggregate([
+    {
+        '$match':{
+            'retweeted_status': {
+                '$ne': None
+            }
+        }
+    },
+    {
+        '$group':{
+            '_id': {
+                'user_id': '$user.id',
+                'tweet_id': '$id',
+                'created_at': {
+                    '$dateFromString': {
+                        'dateString': '$created_at'
+                    },
+                },
+            },
+            'count': {'$sum': 1},
+            'retweet_count': {'$max': '$retweet_count'},
+            'favorite_count': {'$max': '$favorite_count'},
+        }
+    },
+    {
+        '$group':{
+            '_id': {
+                'user_id':'$_id.user_id',
+            },
+            'count': {'$sum': 1},
+            'avg_rt': {'$avg': '$retweet_count'},
+            'avg_fv': {'$avg': '$favorite_count'},
+            'total_rt': {'$sum': '$retweet_count'},
+            'total_fv': {'$sum': '$favorite_count'},
+            'min_tweet_time': {'$min': '$_id.created_at'},
+            'max_tweet_time': {'$max': '$_id.created_at'}
+        }
+    },
+    {
+        '$sort': {
+            '_id.user_id': 1
+        }
+    }
+    ], allowDiskUse=True
+)
+
+if first_pass:
+    cursor_name = [(agg_all, 'all', 'Added aggregated features of all tweets for'),
+                   (agg_rp, 'rp', 'Added aggregated features of replies for'),
+                   (agg_org, 'org', 'Added aggregated features of original tweets for'),
+                   (agg_rt, 'rt', 'Added aggregated features of retweeted tweets for')]
+
+    print('Adding aggregated features...')
+    for agg, ft, msg in cursor_name:
+        count = 0
+        for i in agg:
+            count += 1
+            user_id = i['_id']['user_id']
+            index = users_df.query('id == @user_id').index
+            users_df.loc[index, f'tweets_count_{ft}'] = i['count']
+            if ft != 'all':
+                users_df.loc[index, f'avg_favorites_{ft}'] = i['avg_fv']
+                users_df.loc[index, f'avg_retweets_{ft}'] = i['avg_rt']
+                users_df.loc[index, f'total_favorites_{ft}'] = i['total_fv']
+                users_df.loc[index, f'total_retweets_{ft}'] = i['total_rt']
+            users_df.loc[index, f'min_date_{ft}'] = i['min_tweet_time']
+            users_df.loc[index, f'max_date_{ft}'] = i['max_tweet_time']
+        print(msg, count, 'users.')
+
+if first_pass:
+    users_df.to_csv('users.csv', index=False)
+
+# ## Sanity check
+# 1. Check that the total number of users that have replies in the users collection is 3325
+# 2. Check that the total number of users that have original tweets in the users collection is 3673
+# 3. Check that the total number of users that have retweeted tweets in the users collection is 3361
+
+# +
+# 1 
+distinct_rp = db.tweets.aggregate([
+    {
+        '$match': {
+            'in_reply_to_status_id': {
+                '$ne': None
+            }
+        }
+    },
+    {
+        '$group': {
+            '_id': {
+                'user_id': '$user.id',
+                'tweet_id': '$id'
+            },
+            'count': {'$sum': 1}
+        }
+    },
+    {
+        '$group': {
+            '_id': {
+                'user_id': '$_id.user_id',
+            },
+            'count': {'$sum': 1}
+        }
+    },
+    {
+        '$group': {
+            '_id': None,
+            'count': {'$sum': 1}
+        }
+    }
+])
+
+assert list(distinct_rp)[0]['count'] == 3325
+
+# +
+# 2
+distinct_org = db.tweets.aggregate([
+    {
+        '$match': {
+            'in_reply_to_status_id': None,
+            'retweeted_status': None
+        }
+    },
+    {
+        '$group': {
+            '_id': {
+                'user_id': '$user.id',
+                'tweet_id': '$id'
+            },
+            'count': {'$sum': 1}
+        }
+    },
+    {
+        '$group': {
+            '_id': {
+                'user_id': '$_id.user_id',
+            },
+            'count': {'$sum': 1}
+        }
+    },
+    {
+        '$group': {
+            '_id': None,
+            'count': {'$sum': 1}
+        }
+    }
+])
+
+assert list(distinct_org)[0]['count'] == 3673
+
+# +
+# 2
+distinct_rt = db.tweets.aggregate([
+    {
+        '$match': {
+            'retweeted_status': {
+                '$ne': None
+            }
+        }
+    },
+    {
+        '$group': {
+            '_id': {
+                'user_id': '$user.id',
+                'tweet_id': '$id'
+            },
+            'count': {'$sum': 1}
+        }
+    },
+    {
+        '$group': {
+            '_id': {
+                'user_id': '$_id.user_id',
+            },
+            'count': {'$sum': 1}
+        }
+    },
+    {
+        '$group': {
+            '_id': None,
+            'count': {'$sum': 1}
+        }
+    }
+])
+
+assert list(distinct_rt)[0]['count'] == 3361
+# -
+
+users_df.columns[-24:]
+
+old_feats = ['friends_count', 'followers_count', 'statuses_count', 'favourites_count']
+new_feats = ['days', 'months', 'tweets_count_all', 'tweets_count_rp', 'avg_favorites_rp', 'avg_retweets_rp',
+             'total_favorites_rp', 'total_retweets_rp', 'tweets_count_org', 'avg_favorites_org', 
+             'avg_retweets_org', 'total_favorites_org', 'total_retweets_org', 'tweets_count_rt',
+             'avg_favorites_rt', 'avg_retweets_rt', 'total_favorites_rt', 'total_retweets_rt']
+
+df = users_df[old_feats + new_feats].fillna(0)
+
+df.hist(figsize=(15, 15), bins=50);
+
+# ## What are the question that I want to answer?
+# 1. How long does it take to tweet 200 tweets?
+# 2. What is the proportion of users who have tweeted more than 100 original tweets in the their last 200 tweets?
+# 3. What are the characterstics of users who don't retweet and those who do?
+# 4. Do users who interact more commonly throught replies have more or less followers?
+# 5. Is the frequency of original tweets or retweeted tweets correlated with the number of followers?
+# 6. What is the proportion of passive users? (users who didn't post original tweets in the latest 200 tweets)
+# 7. Do veteran users retweet often to less?
+# 8. How many users were collected with their accounts created only in the past week?
+# 9. Is more retweets correlated with more followers?
+# 10. Does the total number of retweets of tweets the user has retweeted correlate with his followers count?
+# 11. Can we deduce if users have reduced using the platform, or started using it more often?
+# 12. How does the two groups differ? Does some get bored or discouraged because they don't get many followers? And does the other group get encouraged because of a spike of followers that they have?
+
+# ## 1. How long does it take to tweet 200 tweets?
+#
+# The answer to this question lies in calculating the relative difference between the date of the earliest and the date of collecting the date which is 19/4/2021
+
+# convert dates to datetime objects
+users_df['min_date_all'] = pd.to_datetime(users_df['min_date_all'])
+collection_date = datetime.datetime.strptime('19/4/2021', '%d/%m/%Y')
+
+# calculate difference in times between min and max dates
+tweets_duration = users_df.apply(lambda x: (collection_date - x.min_date_all).days, axis=1)
+
+# Now since the duration of tweeting 200 tweets for each user was collected, we weren't able to collect 200 tweets for every user, let's take a look at the distribution of tweets collected.
+
+sns.histplot(data=users_df, x='tweets_count_all');
+plt.title('Distribution of number of tweets collected per user');
+
+# Let's also take a look at 5 number summary of the feature to determine how many users fit our criteria.
+
+users_df['tweets_count_all'].describe()
+
+# We have it that we collected more than 148 tweets for 75% of the users, and more than 198 tweets for 50% of the users. Let's take a look.
+
+q_50 = users_df['tweets_count_all'] > users_df['tweets_count_all'].quantile(0.5)
+q_25 = users_df['tweets_count_all'] > users_df['tweets_count_all'].quantile(0.25)
+
+plt.figure(figsize=(15, 5))
+plt.subplot(1, 2, 1)
+tweets_duration[q_50].hist();
+plt.title(f"Duration for tweeting 200 tweets (Above 50th percentile) \nMedian {tweets_duration[q_50].median()} days");
+plt.subplot(1, 2, 2)
+tweets_duration[q_25].hist();
+plt.title(f"Duration for tweeting 200 tweets (Above 25th percentile) \nMedian {tweets_duration[q_25].median()} days");
+
+# We can see that the median more than doubles when we include users that we didn't collect 200 tweets for, and that maybe because these users didn't reach 200 tweets in their life time. Let's check that.
+
+users_df[~q_25].statuses_count.describe()
+
+# We can see in the next plot that users below the 25th quantile have statuses counts that generally don't exceed 200 tweets. There are some users have tweeted more than 200 tweets, but we didn't collect the latest ones for all of them, that maybe have happened due to a quirk in the api during collection, but the general rule is that the majority of users for which we didn't collect 200 tweets didn't exceed that number.
+#
+# Therefore, I think that the best way to estimate the statistic is to use that data above a cutoff point, and the the cutoff of the 50th percentile is illustrated.
+
+users_df.plot(kind='scatter', x='statuses_count', y='tweets_count_all', figsize=(8, 5))
+plt.xscale('log')
+plt.axhline(198, color='r', linestyle='--');
+
+# But why should the cutoff be strictly 198? How will the statistic be affected by choosing a different cutoff. We can calculate the statistic for every single cutoff from 1 to 199 and plot them.
+
+# +
+cutoffs = np.arange(1, 200)
+statistics = []
+
+for c in cutoffs:
+    mask = users_df.tweets_count_all > c
+    statistics.append(tweets_duration[mask].median())
+# -
+
+plt.figure(figsize=(14, 5))
+plt.plot(cutoffs, statistics);
+plt.xlabel('Cutoff')
+plt.ylabel('Median duration')
+plt.title('Median duration for tweeting 200 tweets over different cut offs');
+
+# We can see that the slope increases in the last 25 points.
+
+plt.plot(cutoffs, statistics);
+plt.xlabel('Cutoff')
+plt.ylabel('Median duration')
+plt.title('Median duration for tweeting 200 tweets over different cut offs');
+plt.xlim([190, 200]);
+
+# We can that changing the cutoff between 190 and 199 decreases the median duration from 125 to 85 days, which is considerable. 
+#
+# So I'll stick with the more accurate statistic using 50% of the users. 
+#
+# On average, a twitter user takes 85 days to tweet 200 tweets, that may include retweets or replies.
+#
+# ## But how long does it take a user to tweet N original tweets?
+#
+# The answer to this question isn't as easy as the one before. I'll tell you why but first let's look at the distribution of original tweets collected per user.
+
+sns.histplot(data=users_df[q_50], x='tweets_count_org');
+
+# The reason I plotted using the 50th quantile mask is that we want to have an accurate picture of the distribution of original tweets collected per user, since we discovered previously that the we weren't able to accurately collect the latest 200 tweets for users who have tweeted more than 200 times in their lifetime.
+#
+# In order to answer the question with this criteria, we would have to aggregate the earliest date of 100th tweet going back in time for each user, what we can do now is to calculate the average time it takes to tweet a minimum of 100 original tweets. 
+
+users_df['min_date_org'] = pd.to_datetime(users_df['min_date_org'])
+tweets_duration_org = users_df.apply(lambda x: (collection_date - x.min_date_org).days, axis=1)
+
+# median duration for tweeting more than 100 and less 200 original tweets
+q_50_100 = users_df[q_50].tweets_count_org >= 100
+tweets_duration_org[q_50][q_50_100].median()
+
+# median number of original tweets in collected sample
+users_df[q_50][q_50_100].tweets_count_org.median()
+
+# So on average, it takes a user 165 days to tweet an average of 157 original tweets.
+
+# Which brings us to our next question.
+# ## 2. What is the proportion of users who have tweeted more than 100 original tweets in the their last 200 tweets?
+#
+
+users_df[q_50][q_50_100].shape[0] / users_df[q_50].shape[0]
+
+# 43% of users have tweeted more than 100 original tweets in their latest 200 tweets.
+
+# Another question would be 
+# ## What is the proportion of users who have retweeted more than 100 tweets of their last 200?
+
+users_df[q_50].query('tweets_count_rt >= 100').shape[0] / users_df[q_50].shape[0]
+
+# 11% of users have retweeted more than 100 tweets of their latest 200 tweets.
+
+# ## To be continued...
 
 # ## Taking a broad look at the features
 
@@ -201,140 +663,6 @@ plt.scatter(x=tmp['months'],
 # We can see that there is no direct relationship between these features, so let's now take a look at the accounts to figure out exactly what they are.
 
 users_df.query('friends_count == 0').head(50)
-
-# ## Aggregate features based on users tweets
-
-# +
-# Aggregate total number of original tweets collected, total retweets, total favorites, average retweets, average 
-# favorties, dates of earliest and latest original tweets collected
-results = db.tweets.aggregate([
-    {
-        '$match':{
-            'in_reply_to_status_id': None
-        }
-    },
-    {
-        '$group':{
-            '_id': {
-                'user_id': '$user.id',
-                'tweet_id': '$id',
-                'created_at': {
-                    '$dateFromString': {
-                        'dateString': '$created_at'
-                    },
-                },
-                'in_reply_to_status_id': '$in_reply_to_status_id'
-            },
-            'count': {'$sum': 1},
-            'retweet_count': {'$max': '$retweet_count'},
-            'favorite_count': {'$max': '$favorite_count'},
-        }
-    },
-    {
-        '$group':{
-            '_id': {
-                'user_id':'$_id.user_id',
-            },
-            'count': {'$sum': 1},
-            'avg_rt': {'$avg': '$retweet_count'},
-            'avg_fv': {'$avg': '$favorite_count'},
-            'total_rt': {'$sum': '$retweet_count'},
-            'total_fv': {'$sum': '$favorite_count'},
-            'min_tweet_time': {'$min': '$_id.created_at'},
-            'max_tweet_time': {'$max': '$_id.created_at'}
-        }
-    }
-    ], allowDiskUse=True
-)
-
-# test case
-count = 0
-for i in results:
-    print(i)
-    count += 1
-    if count > 10: break
-print('total count', count)
-
-# +
-# Aggregate total number of replies collected, total retweets, total favorites, average retweets, average 
-# favorties, dates of earliest and latest replies collected
-results = db.tweets.aggregate([
-    {
-        '$match':{
-            'in_reply_to_status_id': {
-                '$ne': None
-            },
-        }
-    },
-    {
-        '$group':{
-            '_id': {
-                'user_id': '$user.id',
-                'tweet_id': '$id',
-                'created_at': {
-                    '$dateFromString': {
-                        'dateString': '$created_at'
-                    },
-                },
-                'in_reply_to_status_id': '$in_reply_to_status_id'
-            },
-            'count': {'$sum': 1},
-            'retweet_count': {'$max': '$retweet_count'},
-            'favorite_count': {'$max': '$favorite_count'},
-        }
-    },
-    {
-        '$group':{
-            '_id': {
-                'user_id':'$_id.user_id',
-            },
-            'count': {'$sum': 1},
-            'avg_rt': {'$avg': '$retweet_count'},
-            'avg_fv': {'$avg': '$favorite_count'},
-            'total_rt': {'$sum': '$retweet_count'},
-            'total_fv': {'$sum': '$favorite_count'},
-            'min_tweet_time': {'$min': '$_id.created_at'},
-            'max_tweet_time': {'$max': '$_id.created_at'}
-        }
-    }
-    ], allowDiskUse=True
-)
-
-# test case
-count = 0
-for i in results:
-    print(i)
-    count += 1
-    if count > 10: break
-print('total count', count)
-# -
-
-
-
-# +
-# # add tweets_count, avg_retweets, avg_favorites, total_retweets, total_favorites
-# total = 0
-# count = 0
-# for i in results:
-# #     print(i); break
-#     user_id = i['_id']['user_id']
-#     index = users_df.query('id == @user_id').index
-#     users_df.loc[index, 'tweets_count'] = i['count']
-#     users_df.loc[index, 'avg_favorites'] = i['avg_fv']
-#     users_df.loc[index, 'avg_retweets'] = i['avg_rt']
-#     users_df.loc[index, 'total_favorites'] = i['total_fv']
-#     users_df.loc[index, 'total_retweets'] = i['total_rt']
-#     total += i['count']
-#     count += 1
-#     print('\r{}/{} added'.format(count, users_df.screen_name.nunique()), end='')
-    
-# print('\nTotal number of tweets:', total)
-
-# +
-# users_df.tweets_count.sum()
-
-# +
-# len(db.tweets.distinct('id'))
 
 # +
 # # how many duplicates do we have?
