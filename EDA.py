@@ -116,6 +116,144 @@ if first_pass:
 
 # ### Aggregating features for all tweets per user (including retweets and replies)
 
+# Testing aggregating over the latest 100 tweets only and not 200 tweets since after exploring the data, it turns out that I was only able to collect 200 tweets for half of the users.
+#
+# Update: This is the prototype query for which all of the other queries shall be replicated from
+
+# +
+agg_all = db.tweets.aggregate([
+#     {
+#         '$match': {
+#             'user.id': 422
+#         }
+#     },
+    {
+        '$group':{
+            '_id': {
+                'user_id': '$user.id',
+                'tweet_id': '$id',
+                'in_reply_to_status_id': '$in_reply_to_status_id',
+                'created_at': {
+                    '$dateFromString': {
+                        'dateString': '$created_at'
+                    },
+                },
+            },
+            'count': {'$sum': 1},
+        }
+    },
+    {
+        '$sort': {
+            '_id.created_at': 1
+        }
+    },
+    {
+        '$group': {
+            '_id': '$_id.user_id',
+            'tweets': {
+                '$push': {
+                    'tweet_id': '$_id.tweet_id',
+                    'created_at': '$_id.created_at',
+                    'in_reply_to_status_id': '$_id.in_reply_to_status_id'
+                }
+            }
+        }
+    },
+    {
+        '$project': {
+            'tweets': {
+                '$slice': ['$tweets', 100]
+            }
+        }
+    },
+    {
+        '$match': {
+            'tweets.in_reply_to_status_id': {
+                '$ne': None
+            }
+        }
+    },
+    {
+        '$project': {
+            'count':{'$size': '$tweets'},
+            'min_date': {'$min': '$tweets.created_at'},
+            'max_date': {'$max': '$tweets.created_at'},
+        }
+    }
+#     {
+#         '$group':{
+#             '_id': {
+#                 'user_id':'$_id.user_id',
+#             },
+#             'count': {'$sum': 1},
+#             'min_tweet_time': {'$min': '$_id.created_at'},
+#             'max_tweet_time': {'$max': '$_id.created_at'}
+#         }
+#     },
+#     {
+#         '$sort': {
+#             '_id.user_id': 1
+#         }
+#     }
+    ], allowDiskUse=True
+)
+
+for i, r in enumerate(agg_all):
+    print(r)
+    if i > 10: break
+
+# +
+agg_all = db.tweets.aggregate([
+    {
+        '$match': {
+            'user.id': 18735040,
+            'in_reply_to_status_id': {
+                '$ne': None
+            }
+        }
+    },
+    {
+        '$group':{
+            '_id': {
+                'user_id': '$user.id',
+                'tweet_id': '$id',
+                'created_at': {
+                    '$dateFromString': {
+                        'dateString': '$created_at'
+                    },
+                },
+            },
+            'count': {'$sum': 1},
+        }
+    },
+    {
+        '$sort': {
+            '_id.created_at': 1
+        }
+    },
+    {
+        '$group':{
+            '_id': {
+                'user_id':'$_id.user_id',
+            },
+            'count': {'$sum': 1},
+            'min_tweet_time': {'$min': '$_id.created_at'},
+            'max_tweet_time': {'$max': '$_id.created_at'}
+        }
+    },
+#     {
+#         '$sort': {
+#             '_id.user_id': 1
+#         }
+#     }
+    ], allowDiskUse=True
+)
+
+for i, r in enumerate(agg_all):
+    print(r)
+    if i > 10: break
+# -
+
 agg_all = db.tweets.aggregate([
     {
         '$group':{
@@ -444,7 +582,9 @@ new_feats = ['days', 'months', 'tweets_count_all', 'tweets_count_rp', 'avg_favor
              'avg_retweets_org', 'total_favorites_org', 'total_retweets_org', 'tweets_count_rt',
              'avg_favorites_rt', 'avg_retweets_rt', 'total_favorites_rt', 'total_retweets_rt']
 
-df = users_df[old_feats + new_feats].fillna(0)
+users_df[old_feats + new_feats]= users_df[old_feats + new_feats].fillna(0)
+
+df = users_df[old_feats + new_feats]
 
 df.hist(figsize=(15, 15), bins=50);
 
@@ -466,26 +606,59 @@ df.hist(figsize=(15, 15), bins=50);
 #
 # The answer to this question lies in calculating the relative difference between the date of the earliest and the date of collecting the date which is 19/4/2021
 
+# +
 # convert dates to datetime objects
 users_df['min_date_all'] = pd.to_datetime(users_df['min_date_all'])
-collection_date = datetime.datetime.strptime('19/4/2021', '%d/%m/%Y')
+users_df['max_date_all'] = pd.to_datetime(users_df['max_date_all'])
+users_df['min_date_org'] = pd.to_datetime(users_df['min_date_org'])
+users_df['max_date_org'] = pd.to_datetime(users_df['max_date_org'])
+users_df['min_date_rt'] = pd.to_datetime(users_df['min_date_rt'])
+users_df['max_date_rt'] = pd.to_datetime(users_df['max_date_rt'])
+users_df['min_date_rp'] = pd.to_datetime(users_df['min_date_rp'])
+users_df['max_date_rp'] = pd.to_datetime(users_df['max_date_rp'])
+
+collection_date = users_df['max_date_all'].max()
+# -
 
 # calculate difference in times between min and max dates
 tweets_duration = users_df.apply(lambda x: (collection_date - x.min_date_all).days, axis=1)
 
 # Now since the duration of tweeting 200 tweets for each user was collected, we weren't able to collect 200 tweets for every user, let's take a look at the distribution of tweets collected.
 
-sns.histplot(data=users_df, x='tweets_count_all');
+sns.histplot(data=df, x='tweets_count_all');
 plt.title('Distribution of number of tweets collected per user');
 
 # Let's also take a look at 5 number summary of the feature to determine how many users fit our criteria.
 
-users_df['tweets_count_all'].describe()
+df['tweets_count_all'].describe()
 
 # We have it that we collected more than 148 tweets for 75% of the users, and more than 198 tweets for 50% of the users. Let's take a look.
 
-q_50 = users_df['tweets_count_all'] > users_df['tweets_count_all'].quantile(0.5)
-q_25 = users_df['tweets_count_all'] > users_df['tweets_count_all'].quantile(0.25)
+q_50 = df['tweets_count_all'] > df['tweets_count_all'].quantile(0.5)
+q_25 = df['tweets_count_all'] > df['tweets_count_all'].quantile(0.25)
+
+# UPDATE: I thought about this step again, and destroyed a part of the data that actually didn't tweet at all and was maybe created a while ago. Think about, if we only look at users for whom we have collected 200 tweets, the users for whom we have collected less than that number, and they didn't tweet more than it in their lifetime won't be represented. Let's take a look at that.
+
+users_df.query('tweets_count_all < 199 and statuses_count == tweets_count_all').shape[0]
+
+# So as we see, there are 699 users whom we have dropped for no reason, also let's take a look at the number of users remaining.
+
+mask = (users_df[~q_50].tweets_count_all < 199) & (users_df[~q_50].statuses_count == users_df[~q_50].tweets_count_all)
+rem_users = users_df[~q_50][~mask]
+print('Number of remaining users', rem_users.shape[0])
+print('Proportion of remaining users {:.2f}'.format(rem_users.shape[0]/users_df.shape[0]))
+
+# So even if do it this way, we'd be dropping 37% of the data. I don't think that this is particularly a right thing to do. Since we already have collected tweets for said users, they shall be used in context of frequencies, as we have certain statistics based on their recent N tweets. 
+#
+# Let's take a look at the distribution of their tweets count.
+
+rem_users.tweets_count_all.plot(kind='box');
+
+# We have it that the majority of their tweets count is above 120, and the rest are outliers. But how many?
+
+drop = (rem_users.tweets_count_all < 120).index
+
+# 251 users is definetly better than dropping 1450 users, and more over dropping them could be the mask that we want instead of dropping more than 50% of the data.
 
 plt.figure(figsize=(15, 5))
 plt.subplot(1, 2, 1)
@@ -495,18 +668,22 @@ plt.subplot(1, 2, 2)
 tweets_duration[q_25].hist();
 plt.title(f"Duration for tweeting 200 tweets (Above 25th percentile) \nMedian {tweets_duration[q_25].median()} days");
 
+# # REDACTED
 # We can see that the median more than doubles when we include users that we didn't collect 200 tweets for, and that maybe because these users didn't reach 200 tweets in their life time. Let's check that.
 
-users_df[~q_25].statuses_count.describe()
+df[~q_25].statuses_count.describe()
 
+# # REDACTED
 # We can see in the next plot that users below the 25th quantile have statuses counts that generally don't exceed 200 tweets. There are some users have tweeted more than 200 tweets, but we didn't collect the latest ones for all of them, that maybe have happened due to a quirk in the api during collection, but the general rule is that the majority of users for which we didn't collect 200 tweets didn't exceed that number.
 #
 # Therefore, I think that the best way to estimate the statistic is to use that data above a cutoff point, and the the cutoff of the 50th percentile is illustrated.
 
-users_df.plot(kind='scatter', x='statuses_count', y='tweets_count_all', figsize=(8, 5))
+df.plot(kind='scatter', x='statuses_count', y='tweets_count_all', figsize=(8, 5))
 plt.xscale('log')
 plt.axhline(198, color='r', linestyle='--');
 
+# # REDACTED
+#
 # But why should the cutoff be strictly 198? How will the statistic be affected by choosing a different cutoff. We can calculate the statistic for every single cutoff from 1 to 199 and plot them.
 
 # +
@@ -514,7 +691,7 @@ cutoffs = np.arange(1, 200)
 statistics = []
 
 for c in cutoffs:
-    mask = users_df.tweets_count_all > c
+    mask = df.tweets_count_all > c
     statistics.append(tweets_duration[mask].median())
 # -
 
@@ -524,6 +701,8 @@ plt.xlabel('Cutoff')
 plt.ylabel('Median duration')
 plt.title('Median duration for tweeting 200 tweets over different cut offs');
 
+# # REDACTED
+#
 # We can see that the slope increases in the last 25 points.
 
 plt.plot(cutoffs, statistics);
@@ -532,33 +711,146 @@ plt.ylabel('Median duration')
 plt.title('Median duration for tweeting 200 tweets over different cut offs');
 plt.xlim([190, 200]);
 
+# # REDACTED
+#
 # We can that changing the cutoff between 190 and 199 decreases the median duration from 125 to 85 days, which is considerable. 
 #
 # So I'll stick with the more accurate statistic using 50% of the users. 
 #
 # On average, a twitter user takes 85 days to tweet 200 tweets, that may include retweets or replies.
-#
-# ## But how long does it take a user to tweet N original tweets?
+
+# # REDACTED
+# ### But how long does it take a user to tweet N original tweets?
 #
 # The answer to this question isn't as easy as the one before. I'll tell you why but first let's look at the distribution of original tweets collected per user.
 
-sns.histplot(data=users_df[q_50], x='tweets_count_org');
+sns.histplot(data=df[q_50], x='tweets_count_org');
 
 # The reason I plotted using the 50th quantile mask is that we want to have an accurate picture of the distribution of original tweets collected per user, since we discovered previously that the we weren't able to accurately collect the latest 200 tweets for users who have tweeted more than 200 times in their lifetime.
 #
 # In order to answer the question with this criteria, we would have to aggregate the earliest date of 100th tweet going back in time for each user, what we can do now is to calculate the average time it takes to tweet a minimum of 100 original tweets. 
 
-users_df['min_date_org'] = pd.to_datetime(users_df['min_date_org'])
 tweets_duration_org = users_df.apply(lambda x: (collection_date - x.min_date_org).days, axis=1)
 
 # median duration for tweeting more than 100 and less 200 original tweets
-q_50_100 = users_df[q_50].tweets_count_org >= 100
+q_50_100 = df[q_50].tweets_count_org >= 100
 tweets_duration_org[q_50][q_50_100].median()
 
 # median number of original tweets in collected sample
-users_df[q_50][q_50_100].tweets_count_org.median()
+df[q_50][q_50_100].tweets_count_org.median()
 
 # So on average, it takes a user 165 days to tweet an average of 157 original tweets.
+
+# ### But is this duration related to any other feature? For example the first thing that comes to mind is followers count, is the duration taken to write 200 tweets related in any way to the followers count?
+
+plt.scatter(x=df[q_50].followers_count,
+            y=tweets_duration_org[q_50]);
+plt.xscale('log')
+
+# I can't see anything in this plot other than randomness, because of the outliers in tweets duration. Maybe if we were to look only at the users who tweeted close to 200 original tweets we'd get something.
+
+plt.scatter(x=df[q_50][q_50_100].followers_count,
+            y=tweets_duration_org[q_50][q_50_100]);
+plt.xscale('log')
+
+q_50_199 = df[q_50].tweets_count_org >= 199
+
+# The randomnes still persists, but maybe if we just looked at duration between 0 and 500 we'd find something.
+
+plt.scatter(x=df[q_50][q_50_100].followers_count,
+            y=tweets_duration_org[q_50][q_50_100]);
+plt.xscale('log')
+plt.ylim([0, 500]);
+
+# And the randomness still persists. What I noticed now and didn't notice before is that some people tweeted 200 tweets in just one day! How?
+
+# ### Of the users who tweeted 200 tweets in just one day, is this their regular tweeting habits?
+
+# To calculate this, we could look into the frequency of their tweets to get an estimate on the number of tweets per day that they tweet.
+
+users_df['created_at'] = pd.to_datetime(users_df['created_at']).apply(lambda x: x.replace(tzinfo=None))
+
+users_df['days'] = users_df.apply(lambda x: (collection_date - x.created_at).days, axis=1)
+
+
+# calculate tweeting frequency account lifetime
+# since some accounts were created the day of the collection, their days values will be 0
+# and the frequency will be count/days, therefore we need to return just the count in case days is 0
+def calculate_tweets_frequency(row):
+    if row.days == 0:
+        return row['statuses_count']
+    else:
+        return row['statuses_count'] / row['days']
+
+
+users_df['tweets_per_day'] = users_df.apply(calculate_tweets_frequency, axis=1)
+
+# only users for whom we have latest 200 tweets
+tmp = users_df[q_50][tweets_duration[q_50] == 0]
+
+bins = np.arange(0, 350, 50)
+sns.histplot(tmp.tweets_per_day, bins=bins);
+
+sns.histplot(users_df[q_50].tweets_per_day);
+
+print('Median tweets per day for all users: {:.2f}'.format(users_df[q_50].tweets_per_day.median()))
+
+# We can conclude that average tweets per day for these accounts isn't necessairly 200 tweets per day, but it's still significantly higher then average which is 3.74. What could be interesting is to actually look at how long they have been on twitter.
+#
+# But how much of this activity is actually original? Afterall, they could be just on twitter all day reading tweets and retweeting them. Could we tease out if these users are contributors or not?
+#
+# Well, the first thing to ask is are they popular?
+
+bins = [10, 100, 1000, 10000, 100000, 1000000, 10000000]
+sns.histplot(tmp.followers_count, log_scale=True)
+plt.xticks(bins, ['10', '100', '10K', '100K', '1M', '10M']);
+
+# The distribution is bimodal, and what is interesting is that we have 12 users (out of 20) that exceed 100K followers. So the majority of these users have a lot of followers. But why do they stand out? Compared to the average time a users takes to tweet 200 tweets, these accounts take just one day. 
+#
+# How many of their tweets were original? How many were retweets? And how many were replies?
+#
+# Moreover do they get many reactions to their content? and exactly how many hours did it take them tweet these tweets? And how is the duration in hours related to other features like their followers count?
+
+# I think that there is something imporant to do, and that's to cut the followers count into several categories in order to avoid using the log scale over and over.
+
+bins = [0, 10, 100, 1000, 10000, 100000, 1000000, 10000000, 200000000]
+followers_labels = ['0-10', '10-100', '100-1K', '1K-10K', '10K-100K', '100K-1M', '1M-10M', '>=10M']
+users_df['followers_binned'] = pd.cut(users_df.followers_count, bins=bins, labels=followers_labels, include_lowest=True)
+
+# Let's ask the previous question again, are they popular?
+
+users_df.loc[:, old_feats+new_feats] = users_df.loc[:, old_feats+new_feats].fillna(0)
+tmp = users_df[q_50][tweets_duration[q_50] == 0]
+
+tmp.followers_binned.value_counts().sort_values(ascending=True).plot(kind='barh');
+
+# Let's look at the statistics of each group of them to determine how does each followers category change their activity.
+
+for label in tmp.followers_binned.unique():
+    print(label, 'median original tweets {:.2f}'.format(
+        tmp.query('followers_binned == @label').tweets_count_org.median()))
+    print(label, 'median retweets tweets {:.2f}'.format(
+        tmp.query('followers_binned == @label').tweets_count_rt.median()))
+    print(label, 'median replies {:.2f}'.format(
+        tmp.query('followers_binned == @label').tweets_count_rp.median()))
+    print()
+
+# We can see that users with 1M to 10M followers tend to have less retweets count than other categories, but I have to say that the sample size isn't large enought to actually look into these users' behavior. 
+
+# Does these account get many reactions to their content?
+
+for label in tmp.followers_binned.unique():
+    print(label, 'median total retweets {:.2f}'.format(
+        tmp.query('followers_binned == @label').total_retweets_org.median()))
+    print(label, 'median total favorites {:.2f}'.format(
+        tmp.query('followers_binned == @label').total_favorites_org.median()))
+    print()
+
+# It makes sense that users with huge following  have the highest retweets and favorites, but users in the 100k-1M category have values less than 1K-100K which is fishy, and that's because the sample isn't representative at all.
+#
+# Since there is no particular insight gained from these users since they are so few, we can look at their proportion of the sample we are using.
+
+print('Proportion of users who tweeted 200 in one day is {:.2f}'.format(tmp.shape[0]/users_df[q_50].shape[0]))
 
 # Which brings us to our next question.
 # ## 2. What is the proportion of users who have tweeted more than 100 original tweets in the their last 200 tweets?
@@ -574,6 +866,79 @@ users_df[q_50][q_50_100].shape[0] / users_df[q_50].shape[0]
 users_df[q_50].query('tweets_count_rt >= 100').shape[0] / users_df[q_50].shape[0]
 
 # 11% of users have retweeted more than 100 tweets of their latest 200 tweets.
+
+# ## 3. What are the characterstics of users who don't retweet and those who do?
+#
+# First, how do we define a user who retweets from a user who doesn't retweet? Let's take a look at the distribution of the retweets count.
+
+bs = 20
+bins = np.arange(0, 200+bs, bs)
+sns.histplot(users_df[q_50].tweets_count_rt, bins=bins)
+plt.xticks(bins);
+
+# We can make several classes based on 5 numbers summary that best describe the users retweeting habits, and I could make another cut for these bins based on my intuition.
+
+users_df[q_50].tweets_count_rt.describe()
+
+bins = [0, 6, 21, 56, 200]
+# bins = [0, 25, 50, 100, 200]
+retweet_labels = ['Barely retweets', 'Occasionaly retweets', 'Moderatly retweets', 'Always retweets']
+users_df['retweet_class'], bins = pd.cut(users_df.tweets_count_rt, bins=4, labels=retweet_labels, retbins=True, right=False)
+
+(users_df[q_50]['retweet_class'].value_counts()/users_df[q_50].shape[0]).plot(kind='bar');
+
+# 70% of users retweeted less than 25% of their last 200 tweets, which indicates that this is the more general behavior on twitter, meanwhile the remanining 30% retweeted more than 25%.
+
+# ### How long has these users been using twitter?
+
+plt.figure(figsize=(10, 5))
+sns.histplot(data=users_df[q_50], x='days', hue='retweet_class', element='step')
+
+g = sns.catplot(data=users_df[q_50], x='days', y='retweet_class', kind='violin');
+
+# There is no particular insight in this plot
+#
+# ### How many followers do they typically have?
+
+fig, axes = plt.subplots(2, 2, figsize=(12, 8), sharex=True, sharey=True)
+fig.tight_layout(pad=5.0)
+axes = axes.flatten()
+for i, label in enumerate(retweet_labels):
+    group = users_df[q_50].query('retweet_class == @label')
+    followers_binned = group.followers_binned.value_counts()[followers_labels]
+    followers_binned_prop = followers_binned/group.shape[0]
+    followers_binned_prop.plot(kind='bar', ax=axes[i])
+    axes[i].set_title(label)
+    
+    for j, v in enumerate(followers_binned_prop.tolist()):
+        axes[i].text(j-0.25, v+0.01, str(followers_binned[j]))
+
+
+# Since the majority of users barely retweet, we can see a somewhat equal representation of different user groups in terms of followers count. On the other hand, each of the 2 following retweeting behaviors show somewhat similar pattern, 
+
+plt.figure(figsize=(15, 10))
+ticks = [10, 100, 1000, 10000, 100000, 1000000, 10000000, 100000000]
+ticklabels = ['10', '100', '1K', '10K', '100K', '1M', '10M', '100M']
+for i, label in enumerate(labels):
+    plt.subplot(2, 2, i+1)
+    sns.histplot(users_df[q_50].query('retweet_class == @label').followers_count+0.000001, log_scale=True)
+    plt.title(label)
+    plt.xticks(ticks, ticklabels);
+
+# We can see that the majority of million followers club of twitter is present in the first two categories, indicating that most of these users tend to retweet less often.
+#
+# ### How much attention do they typically get?
+
+plt.figure(figsize=(15, 10))
+# ticks = [10, 100, 1000, 10000, 100000, 1000000, 10000000]
+# ticklabels = ['10', '100', '1K', '10K', '100K', '1M', '10M']
+for i, label in enumerate(labels):
+    plt.subplot(2, 2, i+1)
+    sns.histplot(users_df[q_50].query('retweet_class == @label').avg_retweets_org)
+#     plt.title(label)
+#     plt.xticks(ticks, ticklabels);
+
+# ### Using ordinal data will help illuminate any patterns in this, so I think that I'd better cut values of duration of lifetime and follower, etc.. before making any new plots and make the older plots accordingly.
 
 # ## To be continued...
 
