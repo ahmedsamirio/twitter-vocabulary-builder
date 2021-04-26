@@ -658,7 +658,99 @@ rem_users.tweets_count_all.plot(kind='box');
 
 drop = (rem_users.tweets_count_all < 120).index
 
+
 # 251 users is definetly better than dropping 1450 users, and more over dropping them could be the mask that we want instead of dropping more than 50% of the data.
+#
+# Since we opted to keep that data that we have, asking the question about the duration that it takes to tweets 200 tweets isn't valid, because we don't have 200 tweets for all users. But we have is that date of the earliest tweet, and the date of the latest tweet, and the date of collection, so we can calculate a frequency of tweets per day instead of 200 tweets, then we can calculate the duration it takes any user to tweet N tweets for example. 
+#
+# Let's take a look.
+
+def calculate_frequency(row, count_feat, duration_feat):
+    """Calculates frequency for a total value over a duration per pandas df row."""
+    if row[duration_feat] == 0: 
+        return row[count_feat]
+    else:
+        return row[count_feat] / row[duration_feat]
+
+
+users_df['tweets_min_coll_duration'] = users_df.apply(lambda x: (collection_date - x.min_date_all).days, axis=1)
+users_df['tweets_min_max_duration'] = users_df.apply(lambda x: (x.max_date_all - x.min_date_all).days, axis=1)
+users_df['days_since_creation'] = users_df.apply(lambda x: (collection_date - x.created_at).days, axis=1)
+
+# We calculated the duration from two perspectives, the first is the difference in days between the earliest collected tweet and the day of tweets collection, and the second is the differene in days between the earliest and latest tweet collected. I think that the first will be more accurate since it will account for some edge cases where a user may have stopped tweeting for a long time, and so there will be a discrepancy betweent the date of the latest tweet and the date of collection.
+#
+# We can also calculate another frequency based on the statuses count per user and the difference in days between their creation date and the date of collection.
+
+# +
+plt.figure(figsize=(15, 5))
+plt.suptitle('Duration between')
+
+plt.subplot(1, 3, 1)
+sns.histplot(users_df.tweets_min_coll_duration);
+plt.title('earliest tweet and collection date');
+plt.xlabel('Duration in days')
+
+plt.subplot(1, 3, 2)
+sns.histplot(users_df.tweets_min_max_duration);
+plt.title('earliest tweet and latest tweet');
+plt.xlabel('Duration in days')
+
+
+plt.subplot(1, 3, 3)
+sns.histplot(users_df.days_since_creation);
+plt.title('account creation and collection date');
+plt.xlabel('Duration in days');
+
+# -
+
+# The difference in duration between the first two plot could be used to find users who stopped using twitter.
+
+plt.figure(figsize=(10, 5))
+plt.scatter(x=users_df.tweets_min_coll_duration,
+            y=users_df.tweets_min_max_duration,
+            s=users_df.statuses_count/1000,
+            alpha=0.4);
+plt.xlabel('Duration between earliest tweet and collection')
+plt.ylabel('Duration between earliest tweet and latest');
+
+# The regression like line is the users who didn't quit twitter. The more on the left a user is on this line, the more active he/she is, and this is indicated also by their statuses count, and the more on the right, the less the activity of this users, despite not quitting twitter.
+#
+# So for example we have users who have a difference of 3000 days between their earliest tweet and date of collection, and the same for earliest and latest tweets, so probably those would be users who came back from the dead.
+#
+# Then we have users who fall out of line, and these are users who have duration between earliest tweet and collection which is larger than duration between earliest and latest tweet.
+#
+# So let's get back to the main question
+#
+# ## How many tweets per day does a typical twitter user tweet?
+#
+# Since we have 3 different durations, we could calculate 3 different frequencies. The first one would give the most accurate in terms of recent times, the second on would give a good representation frequency of users who quit before quitting, and the third one would give the over time average each user has, let's take a look at all of them. 
+
+users_df['tweet_freq_min_coll'] = users_df.apply(lambda x: calculate_frequency(x,'tweets_count_all','tweets_min_coll_duration'), axis=1)
+users_df['tweet_freq_min_max'] = users_df.apply(lambda x: calculate_frequency(x,'tweets_count_all','tweets_min_max_duration'), axis=1)
+users_df['tweet_freq_cr_coll'] = users_df.apply(lambda x: calculate_frequency(x,'statuses_count','days_since_creation'), axis=1)
+
+# +
+plt.figure(figsize=(15, 5))
+plt.suptitle('Tweet frequency between')
+
+plt.subplot(1, 3, 1)
+sns.histplot(users_df.tweet_freq_min_coll);
+plt.title('earliest tweet and collection date');
+plt.xlabel('Tweets per day')
+
+plt.subplot(1, 3, 2)
+sns.histplot(users_df.tweet_freq_min_max);
+plt.title('earliest tweet and latest tweet');
+plt.xlabel('Tweets per day')
+
+plt.subplot(1, 3, 3)
+sns.histplot(users_df.tweet_freq_cr_coll);
+plt.title('account creation and collection date');
+plt.xlabel('Tweets per day');
+
+# -
+
+# # TODO: Calculate mean based on the three features, and compare them to tease out users with increased activity, decreased activity and users who quit.
 
 plt.figure(figsize=(15, 5))
 plt.subplot(1, 2, 1)
