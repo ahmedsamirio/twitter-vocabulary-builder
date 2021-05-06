@@ -16,15 +16,12 @@ import pymongo
 
 def oauth_login():
     """Returns a twitter api object using OAuth login."""
-    CONSUMER_KEY = CONSUMER_KEY
-    CONSUMER_SECRET = CONSUMER_SECRET
-    OAUTH_TOKEN = OAUTH_TOKEN
-    OAUTH_TOKEN_SECRET = OAUTH_TOKEN_SECRET
 
-    auth = twitter.oauth.OAuth(OAUTH_TOKEN, OAUTH_TOKEN_SECRET,
-                               CONSUMER_KEY, CONSUMER_SECRET)
-    twitter_api = twitter.Twitter(auth=auth)
-    return twitter_api
+    auth = tweepy.OAuthHandler(CONSUMER_KEY, CONSUMER_SECRET)
+    auth.set_access_token(OAUTH_TOKEN, OAUTH_TOKEN_SECRET)
+    api = tweepy.API(auth)
+
+    return api
 
 
 def make_twitter_request(twitter_api_func, max_errors=10, *args, **kw):
