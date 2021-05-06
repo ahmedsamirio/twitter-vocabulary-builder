@@ -19,9 +19,9 @@ def oauth_login():
 
     auth = tweepy.OAuthHandler(CONSUMER_KEY, CONSUMER_SECRET)
     auth.set_access_token(OAUTH_TOKEN, OAUTH_TOKEN_SECRET)
-    api = tweepy.API(auth)
+    twitter_api = tweepy.API(auth)
 
-    return api
+    return twitter_api
 
 
 def make_twitter_request(twitter_api_func, max_errors=10, *args, **kw):
@@ -188,9 +188,9 @@ def stream_from_users(twitter_api, user, tweets_per_user, friends_per_user, mong
     #           (tweets_count, time.time() - start_time), "\n")
 
 
-def collect_tweets(api, user, tweets_per_user):
+def collect_tweets(twitter_api, user, tweets_per_user):
     """Returns a number of tweet objects from a user."""
-    tweets = api.user_timeline(user_id=user['id'], count=tweets_per_user)
+    tweets = twitter_api.user_timeline(user_id=user['id'], count=tweets_per_user)
 
     print('Done fetching tweets for {0}\n'.format(user['id']), file=sys.stderr)
     
@@ -199,46 +199,14 @@ def collect_tweets(api, user, tweets_per_user):
 
 def collect_friends(twitter_api, user, friends_per_user):
     """Return a list of user's friends."""
-    robust_collect_friends = partial(
-        make_twitter_request, twitter_api.friends.list)
-
-    friends = []
-    cursor = -1
-    while cursor != 0:
-        response = robust_collect_friends(user_id=user['id'], count=200)
-        if response is not None:
-            friends += response['users']
-            cursor = response['next_cursor']
-
-        if len(friends) >= friends_per_user or response is None:
-            break
-
-    # # exclude verified friends
-    # if friends:
-    #     friends = [user_obj for user_obj in friends if not user_obj['verified']]
+    friends = twitter_api.friends_ids(user_id=user['id'], count=300)
 
     return friends
 
 
 def collect_followers(twitter_api, user, friends_per_user):
     """Return a list of user's follwoers."""
-    robust_collect_followers = partial(
-        make_twitter_request, twitter_api.followers.list)
-
-    followers = []
-    cursor = -1
-    while cursor != 0:
-        response = robust_collect_followers(user_id=user['id'], count=200)
-        if response is not None:
-            followers += response['users']
-            cursor = response['next_cursor']
-
-        if len(followers) >= friends_per_user or response is None:
-            break
-
-    # # exclude verified users
-    # if followers:
-    #     followers = [user_obj for user_obj in followers if not user_obj['verified']]
+    followers = twitter_api.followers_ids(user_id=user['id'], count=300)
 
     return followers
 
