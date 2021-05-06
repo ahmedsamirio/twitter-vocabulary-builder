@@ -102,15 +102,17 @@ users_df.sample(10)
 
 # ## Extracting the number of months since account creation
 
-if first_pass:
-    utc=pytz.UTC
+# +
+# if first_pass:
+#     utc=pytz.UTC
 
-    now = utc.localize(datetime.datetime.now())
+#     now = utc.localize(datetime.datetime.now())
 
-    users_df['delta'] = pd.to_datetime(users_df.created_at).apply(lambda x: relativedelta(now, x))
-    users_df['years'] = pd.to_datetime(users_df.created_at).apply(lambda x: relativedelta(now, x).years)
-    users_df['months'] = users_df.delta.apply(lambda x: x.years * 12 + x.months)
-    users_df['days'] = users_df.delta.apply(lambda x: x.years * 365 + x.days)
+#     users_df['delta'] = pd.to_datetime(users_df.created_at).apply(lambda x: relativedelta(now, x))
+#     users_df['years'] = pd.to_datetime(users_df.created_at).apply(lambda x: relativedelta(now, x).years)
+#     users_df['months'] = users_df.delta.apply(lambda x: x.years * 12 + x.months)
+#     users_df['days'] = users_df.delta.apply(lambda x: x.years * 365 + x.days)
+# -
 
 # ## Engineering new aggregative features based on tweets collection
 
@@ -407,7 +409,7 @@ agg_rt = db.tweets.aggregate([
             },
             'count': {'$sum': 1},
             'retweet_count': {'$max': '$retweet_count'},
-            'favorite_count': {'$max': '$favorite_count'},
+            'favorite_count': {'$max': '$retweeted_status.favorite_count'},
         }
     },
     {
@@ -577,7 +579,7 @@ assert list(distinct_rt)[0]['count'] == 3361
 users_df.columns[-24:]
 
 old_feats = ['friends_count', 'followers_count', 'statuses_count', 'favourites_count']
-new_feats = ['days', 'months', 'tweets_count_all', 'tweets_count_rp', 'avg_favorites_rp', 'avg_retweets_rp',
+new_feats = ['tweets_count_all', 'tweets_count_rp', 'avg_favorites_rp', 'avg_retweets_rp',
              'total_favorites_rp', 'total_retweets_rp', 'tweets_count_org', 'avg_favorites_org', 
              'avg_retweets_org', 'total_favorites_org', 'total_retweets_org', 'tweets_count_rt',
              'avg_favorites_rt', 'avg_retweets_rt', 'total_favorites_rt', 'total_retweets_rt']
@@ -590,7 +592,7 @@ df.hist(figsize=(15, 15), bins=50);
 
 # ## What are the question that I want to answer?
 # 1. How long does it take to tweet 200 tweets?
-# 2. What is the proportion of users who have tweeted more than 100 original tweets in the their last 200 tweets?
+# 2. How do users in different follower groups use twitter?
 # 3. What are the characterstics of users who don't retweet and those who do?
 # 4. Do users who interact more commonly throught replies have more or less followers?
 # 5. Is the frequency of original tweets or retweeted tweets correlated with the number of followers?
@@ -601,12 +603,13 @@ df.hist(figsize=(15, 15), bins=50);
 # 10. Does the total number of retweets of tweets the user has retweeted correlate with his followers count?
 # 11. Can we deduce if users have reduced using the platform, or started using it more often?
 # 12. How does the two groups differ? Does some get bored or discouraged because they don't get many followers? And does the other group get encouraged because of a spike of followers that they have?
+# 13. Is there a relationship between description length and followers count?
+# 14. Label users based on churning and ask more questions
 
 # ## 1. How long does it take to tweet 200 tweets?
 #
 # The answer to this question lies in calculating the relative difference between the date of the earliest and the date of collecting the date which is 19/4/2021
 
-# +
 # convert dates to datetime objects
 users_df['min_date_all'] = pd.to_datetime(users_df['min_date_all'])
 users_df['max_date_all'] = pd.to_datetime(users_df['max_date_all'])
@@ -616,9 +619,8 @@ users_df['min_date_rt'] = pd.to_datetime(users_df['min_date_rt'])
 users_df['max_date_rt'] = pd.to_datetime(users_df['max_date_rt'])
 users_df['min_date_rp'] = pd.to_datetime(users_df['min_date_rp'])
 users_df['max_date_rp'] = pd.to_datetime(users_df['max_date_rp'])
-
+users_df['created_at'] = pd.to_datetime(users_df['created_at']).apply(lambda x: x.replace(tzinfo=None))
 collection_date = users_df['max_date_all'].max()
-# -
 
 # calculate difference in times between min and max dates
 tweets_duration = users_df.apply(lambda x: (collection_date - x.min_date_all).days, axis=1)
@@ -668,9 +670,9 @@ drop = (rem_users.tweets_count_all < 120).index
 def calculate_frequency(row, count_feat, duration_feat):
     """Calculates frequency for a total value over a duration per pandas df row."""
     if row[duration_feat] == 0: 
-        return row[count_feat]
+        return row[count_feat] 
     else:
-        return row[count_feat] / row[duration_feat]
+        return row[count_feat] / (row[duration_feat] + 1)
 
 
 users_df['tweets_min_coll_duration'] = users_df.apply(lambda x: (collection_date - x.min_date_all).days, axis=1)
@@ -709,9 +711,10 @@ plt.figure(figsize=(10, 5))
 plt.scatter(x=users_df.tweets_min_coll_duration,
             y=users_df.tweets_min_max_duration,
             s=users_df.statuses_count/1000,
-            alpha=0.4);
+            alpha=0.3);
 plt.xlabel('Duration between earliest tweet and collection')
-plt.ylabel('Duration between earliest tweet and latest');
+plt.ylabel('Duration between earliest tweet and latest')
+plt.plot([0, 4000], [0, 4000], linestyle='--', alpha=0.4, color='r');
 
 # The regression like line is the users who didn't quit twitter. The more on the left a user is on this line, the more active he/she is, and this is indicated also by their statuses count, and the more on the right, the less the activity of this users, despite not quitting twitter.
 #
@@ -750,7 +753,395 @@ plt.xlabel('Tweets per day');
 
 # -
 
-# # TODO: Calculate mean based on the three features, and compare them to tease out users with increased activity, decreased activity and users who quit.
+# ### Calculate mean based on the three features, and compare them to tease out users with increased activity, decreased activity and users who quit.
+
+print("Median tweets per day calculated using earliest tweet and collection date: {:.2f}".format(users_df.tweet_freq_min_coll.median()))
+print("Median tweets per day calculated using earliest tweet and latest tweet date: {:.2f}".format(users_df.tweet_freq_min_max.median()))
+print("Median tweets per day calculated using statuses count and collection date: {:.2f}".format(users_df.tweet_freq_cr_coll.median()))
+
+# The increase in 3rd and 2nd median over the 1st indicate the hypothesis that alot of users had high activity, then this activity decreased and then they quit.
+
+plt.figure(figsize=(10, 5))
+plt.scatter(x=users_df.tweet_freq_min_coll,
+            y=users_df.tweet_freq_min_max,
+#             s=users_df.followers_count/100000,
+            alpha=0.3);
+plt.xlabel('Tweets frequency (min date - collection date)')
+plt.ylabel('Tweets frequency (min date - max date)');
+plt.axvline(0, color='r', linestyle='--', alpha=0.3);
+
+# Again, the regression like line indicates the users whose didn't stop tweeting while every other users didn't tweet anything since the last tweet. Also the users present on the red dashed line are the users who quit.
+
+plt.figure(figsize=(10, 5))
+plt.scatter(x=users_df.tweet_freq_min_coll,
+            y=users_df.tweet_freq_cr_coll,
+#             s=users_df.followers_count/10000,
+            alpha=0.1);
+plt.xlabel('Tweets frequency (min date - collection date)')
+plt.ylabel('Tweets frequency (creation date - collection date)');
+plt.plot([0, 200], [0, 200], c='r', linestyle='--');
+
+# Any user that falls on that dashed line didn't change his behavior in the last 200 tweets compared to his average behavior since creating his account, while users who below the line increased their activity and users who are above have decreased their activity.
+#
+# So to answer the question of how long does it take to tweet 200 tweets we could have two answers. The first one is based on the tweeting frequency of the latest tweets, and the other is based on the average tweeting frequency since account creation, and they will be totally different, since the second one is around 2.52x the first.
+#
+# Before I answer that question I want to look at how much the behavior changed per user. So let's calculate a ratio between the recent behavior and the averaged behavior over account life time. If the the ratio is above 1, then the user has uped his tweeting game, and vice versa.
+
+# +
+users_df['tweet_freq_ratio'] = users_df.tweet_freq_min_coll / users_df.tweet_freq_cr_coll
+prop_inc = users_df.query('tweet_freq_ratio > 1').shape[0] / users_df.shape[0]
+prop_dec = users_df.query('tweet_freq_ratio <= 1').shape[0] / users_df.shape[0]
+
+print('Proportion of users whose tweet frequency increased: {:.2f}'.format(prop_inc))
+print('Proportion of users whose tweet frequency decreased or stayed the same: {:.2f}'.format(prop_dec))
+
+
+# +
+def calculate_diff(feature, stat='median'):
+    feat_inc = users_df.query('tweet_freq_ratio > 1')[feature]
+    feat_dec = users_df.query('tweet_freq_ratio <= 1')[feature]
+    if stat == 'median':
+        return feat_inc.median() - feat_dec.median()
+    elif stat == 'mean':
+        return feat_inc.mean() - feat_dec.mean()
+
+followers_diff = calculate_diff('followers_count')
+statuses_diff = calculate_diff('statuses_count')
+days_diff = calculate_diff('days_since_creation')
+
+print('Difference between median followers count between the first and second groups:', followers_diff)
+print('Difference between median statuses count between the first and second groups:', statuses_diff)
+print('Difference between median days between the first and second groups:', days_diff)
+# -
+
+# So on average, users who have a surge in tweeting frequency are users of less followers count of 1081.5 than users who have a decrease in their tweeting frequency or stay the same. Morever, the first group has an average of 3567 statuses less than the second group. We can also see than users of the first group have been on average 545.5 less than users of the second group. 
+#
+# To understand this, we could say that the second group includes the users who have been on twitter for a while longer than the first group. They have a solid base of followers, and maybe they don't have to prove themselves or don't want anything more from twitter, while the first group's users are increasing their usage of the network in an attempt to increase their followers count.
+#
+# So maybe the first group are tweeting as much as they can in order to have a better chance at getting retweets and so increase their followers count. 
+
+# So again, to answer the main question, how long does it take, on average, a user on twitter to tweet 200 tweets?
+#
+# Based on the collected data it takes around 341 days, which would be extremely biased because as we have seen, a lot of users had decreased tweeting frequency in the collected tweets. While based on their statuses count and the time since creation it would take around 134 days.
+
+# It would be interesting to look the tweeting habits dissected between groups of users with different followers count, so let's bin the followers count into different bins and look into them.
+
+# bins followers count
+bins = [0, 10, 100, 1000, 10000, 100000, 1000000, 10000000, 200000000]
+followers_labels = ['0-10', '10-100', '100-1K', '1K-10K', '10K-100K', '100K-1M', '1M-10M', '>=10M']
+users_df['followers_binned'] = pd.cut(users_df.followers_count, bins=bins, labels=followers_labels, include_lowest=True)
+
+# Let's take a look at the count of each group first.
+
+plt.figure(figsize=(10, 5))
+ax = users_df['followers_binned'].value_counts()[followers_labels].plot(kind='bar')
+plt.xlabel('Followers group')
+plt.ylabel('Count')
+plt.title('Users binned into different groups according to followers count')
+for j, v in enumerate(users_df['followers_binned'].value_counts()[followers_labels].tolist()):
+    ax.text(j-0.17, v+10, str(users_df['followers_binned'].value_counts()[followers_labels][j]))
+
+# If we were to look in descending order of users in each group.
+
+plt.figure(figsize=(10, 5))
+followers_prop = users_df['followers_binned'].value_counts().sort_values() / users_df.shape[0]
+ax = followers_prop.plot(kind='barh')
+plt.xlabel('Count')
+plt.ylabel('Group')
+plt.title('Proportions of users binned into different groups according to followers count')
+plt.xticks(np.arange(0, 0.3, 0.02))
+for j, v in enumerate(followers_prop.tolist()):
+    ax.text(v+0.001, j-0.15, str(users_df['followers_binned'].value_counts().sort_values()[j]))
+
+# 25% of the users fall in the 100-1K group, while 20% fall in the following 1K-10K, and around 15% are in the 10-100 group. 14% of the users fall in the 10K-100K, and 9% of users fall in 100K-1M, and 8% are in 0-10, while around 6% ar in 1M-10M, and only 1% are above 10M.
+
+# +
+plt.figure(figsize=(15, 4))
+
+plt.subplot(1, 3, 1)
+users_df.groupby('followers_binned')['tweet_freq_min_coll'].median().plot(kind='bar');
+plt.title('Latest tweets frequency since tweets collection')
+plt.xlabel('Followers bin')
+plt.ylabel('Tweets per day');
+
+plt.subplot(1, 3, 2)
+users_df.groupby('followers_binned')['tweet_freq_cr_coll'].median().plot(kind='bar');
+plt.title('Average tweets frequency since account creation')
+plt.xlabel('Followers bin')
+plt.ylabel('Tweets per day');
+
+plt.subplot(1, 3, 3)
+users_df.groupby('followers_binned')['tweet_freq_ratio'].median().plot(kind='bar');
+plt.title('Frequency ratio')
+plt.xlabel('Followers bin')
+plt.ylabel('Tweets per day');
+# -
+
+# We can see that their is a general decrease in the latest activity over all groups.
+
+# ## 2. How do users in different follower groups use twitter?
+#
+# We can look into different facets, the first one is to look at the proportion of original tweets, retweets and replies for every group. The second one is to look at how the content they retweet differ between each group. The third one is find how many favorites per day do they have? As an indicator of how much time they spend looking at their timeline.
+#
+
+# +
+#TODO: plot a barplot with the original tweets on the upper axis and retweets (or retweets + replies) on the
+# lower axis for each group
+
+# calculate proportion of original tweets from all tweets collected per user
+users_df['tweets_prop_org'] = users_df['tweets_count_org'] / users_df['tweets_count_all']
+users_df['tweets_prop_rt'] = users_df['tweets_count_rt'] / users_df['tweets_count_all']
+users_df['tweets_prop_rp'] = users_df['tweets_count_rp'] / users_df['tweets_count_all']
+# -
+
+plt.figure(figsize=(15, 5))
+users_df.groupby('followers_binned')['tweets_prop_org'].median().plot(kind='bar')
+(users_df.groupby('followers_binned')['tweets_prop_rt'].median()*-1).plot(kind='bar', color='r');
+
+# Users with followers above 10K tend to retweet less than other groups.
+
+# +
+#TODO: plot a barplot with the average number of retweets that tweet a group retweets has and the same for 
+#favorites
+
+plt.figure(figsize=(10, 5))
+users_df.groupby('followers_binned')['avg_retweets_rt'].median().plot(kind='bar')
+# (users_df.groupby('followers_binned')['avg_favorites_rt'].median()*-1).plot(kind='bar', color='r')
+# -
+
+# It kind of makes sense that users in >=10M group would have the largest average of retweets and favorites for retweeted tweets, and that's because probably they have a small number of friends, and those friends have a close number of followers, and therefore their tweets have the highest number of tweets and favorites. 
+#
+# But why the 3 groups from 10K to 10M have low numbers than the rest of the groups, why?
+#
+# Well, maybe users in these groups mostly retweet tweets from users of lower influence, while users in groups from 10 to 10K followers tend to do the opposite, which is retweet from users in groups from 10K to 10M.
+
+#TODO: calculate favorites per day and calculate the average for each group then barplot it
+users_df['favorites_per_day'] = users_df['favourites_count'] / users_df['days_since_creation']
+
+plt.figure(figsize=(15, 5))
+users_df.groupby('followers_binned')['favorites_per_day'].median().plot(kind='bar');
+
+# We can see an increase as we go from 0-10 until 1k-10K, which indicates an increase in activity and commitment to use the platform as the followers of a user increase, then as the we move on to the next groups, the favorites per day starts to decrease, which indicate that either the users don't look at the timelines that often, or that they look but they don't have many updates (since they don't follow alot of people), or that they don't view their timeline alltogether.
+#
+# We can look at the average number of friends per each group to consolidate this.
+
+plt.figure(figsize=(15, 5))
+users_df.groupby('followers_binned')['friends_count'].median().plot(kind='bar');
+
+# We can see that as users progress in their followers rank, the number of other users they follow tend to decrease, and therefore the number of activity available to interact with on their timeline is less. So maybe they interact with it, and maybe they don't.
+#
+# Also, since we saw that the activity of the highest 3 groups tend to be comprised mainly of original tweets, they may be inclined to use twitter as means of tweeting and less of viewing other people's tweets.
+
+# ## How many retweets per original tweet does each group get?
+
+plt.figure(figsize=(15, 5))
+users_df.groupby('followers_binned')['avg_retweets_org'].median().plot(kind='bar')
+
+users_df.groupby('followers_binned')['avg_retweets_org'].mean()
+
+# ## 3. What are the characterstics of users who don't retweet and those who do?
+#
+# Through the last question we concluded that the behavior of a certain user is linked to the number of followers he/she has, and as we move along the groups, their interaction through retweets and favorites tend to decrease. But what if we grouped the users into different groups according to their retweeting habits, what would we find?
+#
+#
+# How can we discern users into different groups according to their retweeting habits? We could split them according to the proportion of retweets collected in their latest tweets as follows, we could say that users who had less than 25% of their latest 200 tweets as retweets as barely retweeting users, while users between 25% and 50% are occasional retweeters, and users betweetn 50% and 75% are moderate retweeters, while the last groups is above 75% which are heavy retweeters.
+#
+# Or we could split the users by the average proportion of retweets, where users would be assigned to either less than or equal or higher than average.
+#
+# But that wouldn't take into account the time dimension, as the duration taken between the latest tweets isn't the same for all users. I think that a better strategy is to calculate the number of retweets per day based on the duration of collected tweets for each user.
+
+users_df['retweets_per_day'] = (users_df['tweets_count_rt'] / (users_df['tweets_min_coll_duration']+1))
+users_df['retweets_per_day'][users_df['retweets_per_day'] < users_df['retweets_per_day'].quantile(0.95)].hist(bins=5);
+
+# The number of retweets per day significantly condenses users into the first group, and then the rest of the users are distributed over different values, therefore this direction wouldn't be good for analyis, as we can't possibly split the users into representative groups.
+
+users_df['tweets_prop_rt'].hist();
+
+# The users retweets propotion from the latest tweets looks like a better feature to split the users by, so let's do it.
+
+labels = ['Barely', 'Occasionaly', 'Moderatly', 'Heavily']
+users_df['tweets_prop_rt_binned'] = pd.cut(users_df['tweets_prop_rt'], labels=labels, bins=4)
+
+users_df['tweets_prop_rt_binned'].value_counts().plot(kind='bar');
+
+# First let's look into followers and friends count.
+
+plt.figure(figsize=(15, 7))
+users_df.groupby('tweets_prop_rt_binned')['followers_count'].median().plot(kind='bar');
+(users_df.groupby('tweets_prop_rt_binned')['friends_count'].median()*-1).plot(kind='bar', color='r');
+
+# There is no significant differences between groups other than usually users who heavily retweets tend have the lowest number of followers, and a higher number of friends.
+
+# Let's look into average number of retweets for the tweets that they retweet.
+
+plt.figure(figsize=(10, 4))
+users_df.groupby('tweets_prop_rt_binned')['avg_retweets_rt'].median().plot(kind='bar');
+# (users_df.groupby('tweets_prop_rt_binned')['avg_favorites_rt'].median()*-1).plot(kind='bar', color='r');
+
+# Users who barely retweet have the lowest average of number of retweets for a given retweeted tweet, which is counter intuitive, as we previously concluded that users with huge following don't often retweet, but when they the tweets are hot in terms of retweets and favorites count. 
+#
+# Let's look at a heatmap that sums up how users in different followers groups are distributed among these 4 retweeting behaviors.
+
+# +
+plt.figure(figsize=(12, 6))
+retweet_followers = pd.pivot_table(users_df,
+                           index='tweets_prop_rt_binned',
+                           values='_id', columns='followers_binned', aggfunc=len)
+
+retweet_followers_prop = retweet_followers / retweet_followers.sum(axis=0)
+sns.heatmap(retweet_followers_prop,
+            cmap="YlGnBu",
+            square=True, 
+            linewidth=2.5, 
+            cbar=False, 
+            annot=True,
+            fmt=".2f"
+           );
+
+
+# -
+
+# We can see that users are distributed among the 4 categoires, where the majority of the users in all followers groups are users who barely retweets, or users who retweet less than 25% of their total number of tweets.
+#
+#
+# How long have they been on twitter?
+
+(users_df.groupby('tweets_prop_rt_binned')['days_since_creation'].median()/365).plot(kind='bar');
+
+# No pattern.
+
+(users_df.groupby('tweets_prop_rt_binned')['tweets_count_org'].median()).plot(kind='bar');
+
+# What if we split the data into users above and below average of retweeting proportions?
+
+users_df['tweets_prop_rt_above_avg'] = users_df['tweets_prop_rt'] >  users_df['tweets_prop_rt'].median()
+
+users_df['tweets_prop_rt_above_avg'].value_counts().plot(kind='bar');
+
+# Is there a difference in followers count?
+
+users_df.groupby('tweets_prop_rt_above_avg')['followers_count'].median().plot(kind='bar');
+
+# So we have it that users who retweeted less than 18.5% of their latest tweets have an average of 377.5 follower more than users who did.
+
+users_df.groupby('tweets_prop_rt_above_avg')['friends_count'].median().plot(kind='bar');
+
+users_df.groupby('tweets_prop_rt_above_avg')['friends_count'].median().diff()
+
+# On the other hand, users who have above average retweets have an average of 128.5 friends more than users who didn't.
+
+# ## 6. What is the proportion of passive users? (users who didn't post original tweets in the latest 200 tweets)
+#
+
+passive_users = users_df.query('tweets_count_org == 0')
+print('Proportion of passive users: {:.2f}'.format(passive_users.shape[0]/users_df.shape[0]))
+
+# How are these passive users represented in each followers group?
+
+ax = passive_users.followers_binned.value_counts().plot(kind='bar', figsize=(10, 5));
+for j, v in enumerate(passive_users.followers_binned.value_counts().tolist()):
+    ax.text(j-0.1, v+0.7, str(passive_users.followers_binned.value_counts()[j]))
+
+# The majority of passive users are users of low followers count, and the users with high are obviously anomalies.
+
+# ## 7. Do veteran users retweet often to less?
+#
+# How do we define a twitter veteran? Twitter was launched at 2006, and it became popular at 2007. So I'd say that any one joined twitter from 2007 until 2012 and kept being active is a veteran user. So that's more than 9 years ago.
+
+users_df['veteran_flag'] = users_df['years_since_creation'] > 9
+
+users_df.groupby('veteran_flag')['tweets_prop_rt'].median().plot(kind='bar');
+
+# Nope, there is no relationship with being a twitter veteran and how much you retweet.
+
+# ## 8. How many users were collected with their accounts created only in the past week?
+#
+
+users_df[users_df['days_since_creation'] <= 6].shape[0]
+
+# ## 9. Is more retweets correlated with more followers?
+#
+# We actually found out previously the it was the opposite.
+
+# ## 10. Does the total number of retweets of tweets the user has retweeted correlate with his followers count?
+#
+# I also answered this question previously.
+
+# ## 11. Can we deduce if users have reduced using the platform, or started using it more often?
+# Yes and we did.
+
+# ## 12. How does the two groups differ? Does some get bored or discouraged because they don't get many followers? And does the other group get encouraged because of a spike of followers that they have? 
+#
+# This question require longitudnal data for each user, while the date we have is cross sectional. 
+#
+# To get an approximation of the effect of this, we can calculate the difference between the duration between earliest and latest tweet collection, and the duration between earliest tweet collected and time of collection.
+
+users_df['duration_diff'] = users_df['tweets_min_coll_duration'] - users_df['tweets_min_max_duration']
+users_df['duration_diff'].hist();
+
+# +
+inactive = users_df.query('duration_diff >= 365')
+plt.scatter(x=inactive['duration_diff'],
+            y=inactive['followers_count'])
+
+plt.yscale('log')
+plt.ylim([1, 10e7])
+
+# above_30.groupby('followers_binned').duration_diff.mean().plot();
+# -
+
+# We can see that as the duration of inactivity increase, the spread of the followers decrease, which indicates that the longer the duration of inactivity, the lower the followers of the inactive users. Therefore we could say that users who quit long time ago probably did because they didn't find their voice heard in twitter, or may be because they didn't have a unique voice.
+
+inactive.followers_binned.value_counts().plot(kind='bar')
+
+# Users above 100K are probably official accounts and these accounts don't necesairly tweet very often. What is interesting is the users between 100 and 100K followers. 
+#
+# We could tease out how their activity changed in their latest tweets by calculating their tweeting frequency compared to would have been their average tweeting frequency since account creation.
+
+## calculate frequency and compare to min max frequency
+inactive['tweets_cr_max_duration'] = inactive.apply(lambda x: ( x.max_date_all - x.created_at).days, axis=1)
+inactive['tweets_freq_cr_max'] = inactive['statuses_count'] / (inactive['tweets_cr_max_duration'] + 1)
+
+plt.scatter(x=inactive['tweets_cr_max_duration'],
+            y=inactive['tweets_min_max_duration'],
+            s=inactive['followers_count']/1000);
+
+inactive['tweet_freq_cr_max'] = inactive.apply(lambda x: calculate_frequency(x,'statuses_count','tweets_cr_max_duration'), axis=1)
+
+plt.scatter(x=inactive['tweet_freq_cr_max'],
+            y=inactive['tweet_freq_min_max'],
+            s=inactive['followers_count']/100000)
+plt.plot([0, 100], [0, 100])
+# plt.xlim([0, 100])
+
+inactive['ratio'] = inactive['tweet_freq_min_max'] / inactive['tweet_freq_cr_max']
+
+inactive.groupby('followers_binned').ratio.median().plot(kind='bar');
+
+# The basic permise of the ratio is quite right, as the ratio never exceeds one in the groups we wanted to look at. And it is evident that users in groups between 100 and 100K followers experienced a decrease in activity that compared to their overall behavior.
+
+# ## 13. Is there a relationship between description length and followers count?
+#
+
+# First, how many users don't have any description in place?
+
+users_df.description.isna().sum()
+
+desc_len = users_df.description.str.len()
+plt.scatter(x=np.log(users_df.followers_count),
+            y=desc_len)
+
+
+plt.hist(desc_len);
+
+
+
+# 7. Do veteran users retweet often to less?
+# 8. How many users were collected with their accounts created only in the past week?
+# 9. Is more retweets correlated with more followers?
+# 10. Does the total number of retweets of tweets the user has retweeted correlate with his followers count?
+# 11. Can we deduce if users have reduced using the platform, or started using it more often?
+# 12. How does the two groups differ? Does some get bored or discouraged because they don't get many followers? And does the other group get encouraged because of a spike of followers that they have?
 
 plt.figure(figsize=(15, 5))
 plt.subplot(1, 2, 1)
@@ -1557,22 +1948,26 @@ def load_model(filename, save_dir='models'):
     return model
 
 
+# -
+
+users_df[old_feats]
+
 # +
 from sklearn.mixture import GaussianMixture
 
-n = 10
+n = 2
 gm = GaussianMixture(n_components=n, n_init=20, random_state=seed)
-gm.fit(users_df[outliers_mask][cols])
+gm.fit(users_df[old_feats+new_feats])
 
 # gm = load_model('gm_95th_2021-04-08 13:20:35.718419.pkl')
 
-y_pred_4 = gm.predict(users_df.loc[outliers_mask, cols])
+y_pred_4 = gm.predict(users_df[old_feats+new_feats])
 
 plt.figure(figsize=(10, 6))
 
 for label, color in zip(set(y_pred_4), 'bgrcmy'):
-    plt.scatter(x=users_df[outliers_mask][y_pred_4 == label]['friends_count'],
-                y=users_df[outliers_mask][y_pred_4 == label]['followers_count'],
+    plt.scatter(x=users_df[y_pred_4 == label]['friends_count'],
+                y=users_df[y_pred_4 == label]['followers_count'],
                 c=color,
                 alpha=0.5,
                 label=label);
@@ -1582,10 +1977,10 @@ plt.legend();
 # +
 plt.figure(figsize=(10, 6))
 for label, color in zip(set(y_pred_4), 'bgrcmy'):
-    plt.scatter(x=users_df[outliers_mask][y_pred_4 == label]['friends_count'],
-                y=users_df[outliers_mask][y_pred_4 == label]['followers_count'],
+    plt.scatter(x=users_df[y_pred_4 == label]['friends_count'],
+                y=users_df[y_pred_4 == label]['followers_count'],
                 c=color,
-                s=users_df[outliers_mask][y_pred_4 == label]['avg_retweets']/1,
+                s=users_df[y_pred_4 == label]['avg_retweets_org']/1,
                 alpha=0.5,
                 label=label);
 
