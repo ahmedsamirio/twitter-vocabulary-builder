@@ -8,7 +8,7 @@ from config import collected_users_list, tweets_count, start_time, limit_depth
 
 import sys
 import time
-import twitter
+import tweepy
 
 import numpy as np
 import pymongo
@@ -190,35 +190,30 @@ def stream_from_users(twitter_api, user, tweets_per_user, friends_per_user, mong
 
 def collect_tweets(twitter_api, user, tweets_per_user):
     """Returns a number of tweet objects from a user."""
-    tweets = twitter_api.user_timeline(user_id=user['id'], count=tweets_per_user)
+    tweets = twitter_api.user_timeline(user_id=user.id, count=tweets_per_user)
 
-    print('Done fetching tweets for {0}\n'.format(user['id']), file=sys.stderr)
+    print('Done fetching tweets for {0}\n'.format(user.id), file=sys.stderr)
     
     return tweets
 
 
 def collect_friends(twitter_api, user, friends_per_user):
     """Return a list of user's friends."""
-    friends = twitter_api.friends_ids(user_id=user['id'], count=300)
+    friends = twitter_api.friends_ids(user_id=user.id, count=300)
 
     return friends
 
 
 def collect_followers(twitter_api, user, friends_per_user):
     """Return a list of user's follwoers."""
-    followers = twitter_api.followers_ids(user_id=user['id'], count=300)
+    followers = twitter_api.followers_ids(user_id=user.id, count=300)
 
     return followers
 
 
-def collect_user(twitter_api, screen_name):
-    """Returns a user object."""
-    robust_collect_user = partial(make_twitter_request, twitter_api.users.show)
-    return robust_collect_user(screen_name=screen_name)
-
 def collect_users(twitter_api, screen_names):
-    robust_collect_users = partial(make_twitter_request, twitter_api.users.lookup)
-    return robust_collect_users(screen_name=screen_names)
+    users = twitter_api.lookup_users(screen_name=screen_names)
+    return users
 
 
 def store_tweets(twitter_api, tweets, user, db, db_cursor):
@@ -242,6 +237,8 @@ def save_to_mongo(data, mongo_db, mongo_db_coll):
     client = pymongo.MongoClient('localhost', 27017)
     db = client[mongo_db]
     coll = db[mongo_db_coll]
+
+    print(data)
 
     return coll.insert(data)   
 
