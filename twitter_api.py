@@ -16,11 +16,6 @@ import pymongo
 
 def oauth_login():
     """Returns a twitter api object using OAuth login."""
-    CONSUMER_KEY = CONSUMER_KEY
-    CONSUMER_SECRET = CONSUMER_SECRET
-    OAUTH_TOKEN = OAUTH_TOKEN
-    OAUTH_TOKEN_SECRET = OAUTH_TOKEN_SECRET
-
     auth = twitter.oauth.OAuth(OAUTH_TOKEN, OAUTH_TOKEN_SECRET,
                                CONSUMER_KEY, CONSUMER_SECRET)
     twitter_api = twitter.Twitter(auth=auth)
@@ -161,7 +156,7 @@ def stream_from_users(twitter_api, user, tweets_per_user, friends_per_user, mong
         print("Collected users: %d user\nCollected tweets: %d tweet\nDuration: %d seconds" %
               (len(collected_users_list), tweets_count, time.time() - start_time), "\n", file=sys.stderr)
 
-    if depth < limit_depth:
+    if depth <= limit_depth:
         try:
             friends = collect_friends(twitter_api, user, friends_per_user)
             followers = collect_followers(twitter_api, user, friends_per_user)
